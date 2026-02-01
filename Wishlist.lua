@@ -1,0 +1,375 @@
+-- LootWishlist Wishlist
+-- Wishlist CRUD operations
+
+local addonName, ns = ...
+
+-- Cache global functions
+local pairs, ipairs, type, tonumber = pairs, ipairs, type, tonumber
+local tinsert, tremove = table.insert, table.remove
+local C_Item, CopyTable = C_Item, CopyTable
+
+-- Item cache for async loading
+ns.itemCache = {}
+
+-- Constants for validation
+local MAX_WISHLIST_NAME_LENGTH = 50
+
+-- Validate wishlist name
+local function ValidateWishlistName(name, existingWishlists)
+    if not name or name == "" then
+        return false, "Wishlist name cannot be empty"
+    end
+
+    local trimmed = name:match("^%s*(.-)%s*$") or ""
+    if trimmed == "" then
+        return false, "Wishlist name cannot be only whitespace"
+    end
+
+    if #trimmed > MAX_WISHLIST_NAME_LENGTH then
+        return false, "Wishlist name cannot exceed " .. MAX_WISHLIST_NAME_LENGTH .. " characters"
+    end
+
+    if existingWishlists[trimmed] then
+        return false, "Wishlist already exists"
+    end
+
+    return true, trimmed
+end
+
+-- Create a new wishlist
+function ns:CreateWishlist(name)
+    local success, result = ValidateWishlistName(name, self.db.wishlists)
+    if not success then
+        return false, result
+    end
+
+    local cleanName = result
+    self.db.wishlists[cleanName] = { items = {} }
+    return true
+end
+
+-- Delete a wishlist
+function ns:DeleteWishlist(name)
+    if name == "Default" then
+        return false, "Cannot delete the Default wishlist"
+    end
+
+    if not self.db.wishlists[name] then
+        return false, "Wishlist does not exist"
+    end
+
+    self.db.wishlists[name] = nil
+
+    -- Switch to Default if active wishlist was deleted
+    if self:GetActiveWishlistName() == name then
+        self:SetSetting("activeWishlist", "Default")
+    end
+
+    return true
+end
+
+-- Rename a wishlist
+function ns:RenameWishlist(oldName, newName)
+    if not newName or newName == "" then
+        return false, "New name cannot be empty"
+    end
+
+    if oldName == "Default" then
+        return false, "Cannot rename the Default wishlist"
+    end
+
+    if not self.db.wishlists[oldName] then
+        return false, "Wishlist does not exist"
+    end
+
+    if self.db.wishlists[newName] then
+        return false, "A wishlist with that name already exists"
+    end
+
+    self.db.wishlists[newName] = self.db.wishlists[oldName]
+    self.db.wishlists[oldName] = nil
+
+    -- Update active wishlist if it was renamed
+    if self:GetActiveWishlistName() == oldName then
+        self:SetSetting("activeWishlist", newName)
+    end
+
+    return true
+end
+
+-- Duplicate a wishlist
+function ns:DuplicateWishlist(name, newName)
+    if not self.db.wishlists[name] then
+        return false, "Wishlist does not exist"
+    end
+
+    if not newName or newName == "" then
+        newName = name .. " Copy"
+    end
+
+    -- Ensure unique name
+    local baseName = newName
+    local counter = 1
+    while self.db.wishlists[newName] do
+        counter = counter + 1
+        newName = baseName .. " " .. counter
+    end
+
+    -- Deep copy the wishlist
+    self.db.wishlists[newName] = {
+        items = CopyTable(self.db.wishlists[name].items),
+    }
+
+    return true, newName
+end
+
+-- Set active wishlist
+function ns:SetActiveWishlist(name)
+    if not self.db.wishlists[name] then
+        return false, "Wishlist does not exist"
+    end
+
+    self:SetSetting("activeWishlist", name)
+    return true
+end
+
+-- Add item to active wishlist
+function ns:AddItemToWishlist(itemID, wishlistName, sourceText)
+    wishlistName = wishlistName or self:GetActiveWishlistName()
+    local wishlist = self.db.wishlists[wishlistName]
+
+    if not wishlist then
+        return false, "Wishlist does not exist"
+    end
+
+    -- Check if already in wishlist (same itemID AND sourceText)
+    for _, entry in ipairs(wishlist.items) do
+        if entry.itemID == itemID and entry.sourceText == (sourceText or "") then
+            return false, "Item already in wishlist"
+        end
+    end
+
+    table.insert(wishlist.items, {itemID = itemID, sourceText = sourceText or ""})
+
+    -- Cache item info
+    self:CacheItemInfo(itemID)
+
+    return true
+end
+
+-- Remove item from wishlist
+function ns:RemoveItemFromWishlist(itemID, sourceText, wishlistName)
+    wishlistName = wishlistName or self:GetActiveWishlistName()
+    local wishlist = self.db.wishlists[wishlistName]
+
+    if not wishlist then
+        return false, "Wishlist does not exist"
+    end
+
+    for i, entry in ipairs(wishlist.items) do
+        if entry.itemID == itemID and entry.sourceText == (sourceText or "") then
+            table.remove(wishlist.items, i)
+            return true
+        end
+    end
+
+    return false, "Item not in wishlist"
+end
+
+-- Get items in active wishlist
+function ns:GetWishlistItems(wishlistName)
+    wishlistName = wishlistName or self:GetActiveWishlistName()
+    local wishlist = self.db.wishlists[wishlistName]
+
+    if not wishlist then
+        return {}
+    end
+
+    return wishlist.items
+end
+
+-- Check if item is on any wishlist
+function ns:IsItemOnWishlist(itemID, wishlistName)
+    if wishlistName then
+        local wishlist = self.db.wishlists[wishlistName]
+        if wishlist then
+            for _, entry in ipairs(wishlist.items) do
+                if entry.itemID == itemID then
+                    return true
+                end
+            end
+        end
+        return false
+    end
+
+    -- Check all wishlists
+    for name, wishlist in pairs(self.db.wishlists) do
+        for _, entry in ipairs(wishlist.items) do
+            if entry.itemID == itemID then
+                return true, name
+            end
+        end
+    end
+
+    return false
+end
+
+-- Check if item with specific source is on wishlist
+function ns:IsItemOnWishlistWithSource(itemID, sourceText, wishlistName)
+    wishlistName = wishlistName or self:GetActiveWishlistName()
+    local wishlist = self.db.wishlists[wishlistName]
+
+    if not wishlist then
+        return false
+    end
+
+    for _, entry in ipairs(wishlist.items) do
+        if entry.itemID == itemID and entry.sourceText == (sourceText or "") then
+            return true
+        end
+    end
+
+    return false
+end
+
+-- Cache item info for async loading
+function ns:CacheItemInfo(itemID)
+    if self.itemCache[itemID] then
+        return self.itemCache[itemID]
+    end
+
+    local name, link, quality, iLevel, reqLevel, class, subclass,
+          maxStack, equipSlot, texture, sellPrice, classID, subclassID,
+          bindType, expacID, setID, isCraftingReagent = C_Item.GetItemInfo(itemID)
+
+    if name then
+        self.itemCache[itemID] = {
+            itemID = itemID,
+            name = name,
+            link = link,
+            quality = quality or 1,
+            iLevel = iLevel or 0,
+            equipSlot = equipSlot or "",
+            texture = texture or 134400, -- Question mark icon
+            classID = classID,
+            subclassID = subclassID,
+        }
+        return self.itemCache[itemID]
+    end
+
+    -- Item not cached yet, request it
+    C_Item.RequestLoadItemDataByID(itemID)
+    return nil
+end
+
+-- Get cached item info
+function ns:GetCachedItemInfo(itemID)
+    return self.itemCache[itemID] or self:CacheItemInfo(itemID)
+end
+
+-- Calculate wishlist progress
+function ns:GetWishlistProgress(wishlistName)
+    wishlistName = wishlistName or self:GetActiveWishlistName()
+    local items = self:GetWishlistItems(wishlistName)
+    local total = #items
+    local collected = 0
+
+    for _, entry in ipairs(items) do
+        if self:IsItemCollected(entry.itemID) then
+            collected = collected + 1
+        end
+    end
+
+    return collected, total
+end
+
+-- Duplicate an item within the same wishlist
+function ns:DuplicateWishlistItem(itemID, wishlistName)
+    wishlistName = wishlistName or self:GetActiveWishlistName()
+    local wishlist = self.db.wishlists[wishlistName]
+
+    if not wishlist then
+        return false, "Wishlist does not exist"
+    end
+
+    -- Find the item to duplicate
+    for _, entry in ipairs(wishlist.items) do
+        if entry.itemID == itemID then
+            -- Create a copy of the entry
+            table.insert(wishlist.items, {itemID = entry.itemID, sourceText = entry.sourceText})
+            return true
+        end
+    end
+
+    return false, "Item not in wishlist"
+end
+
+-- Get item entry from wishlist (returns the full entry object)
+function ns:GetWishlistItemEntry(itemID, wishlistName)
+    wishlistName = wishlistName or self:GetActiveWishlistName()
+    local wishlist = self.db.wishlists[wishlistName]
+
+    if not wishlist then
+        return nil
+    end
+
+    for _, entry in ipairs(wishlist.items) do
+        if entry.itemID == itemID then
+            return entry
+        end
+    end
+
+    return nil
+end
+
+-- Get item quality color (uses ColorManager API for accessibility/colorblind support)
+function ns:GetItemQualityColor(quality)
+    -- Use modern ColorManager API (11.1.5+) if available
+    if ColorManager and ColorManager.GetColorDataForItemQuality then
+        local colorData = ColorManager.GetColorDataForItemQuality(quality)
+        if colorData then
+            return {colorData.r, colorData.g, colorData.b}
+        end
+    end
+
+    -- Fallback for older clients
+    local colors = {
+        [0] = {0.62, 0.62, 0.62}, -- Poor (gray)
+        [1] = {1, 1, 1},          -- Common (white)
+        [2] = {0.12, 1, 0},       -- Uncommon (green)
+        [3] = {0, 0.44, 0.87},    -- Rare (blue)
+        [4] = {0.64, 0.21, 0.93}, -- Epic (purple)
+        [5] = {1, 0.5, 0},        -- Legendary (orange)
+        [6] = {0.9, 0.8, 0.5},    -- Artifact (light gold)
+        [7] = {0, 0.8, 1},        -- Heirloom (light blue)
+    }
+    return colors[quality] or colors[1]
+end
+
+-- Get slot name from inventory type
+function ns:GetSlotName(equipSlot)
+    local slotNames = {
+        INVTYPE_HEAD = "Head",
+        INVTYPE_NECK = "Neck",
+        INVTYPE_SHOULDER = "Shoulder",
+        INVTYPE_CLOAK = "Back",
+        INVTYPE_CHEST = "Chest",
+        INVTYPE_ROBE = "Chest",
+        INVTYPE_WRIST = "Wrist",
+        INVTYPE_HAND = "Hands",
+        INVTYPE_WAIST = "Waist",
+        INVTYPE_LEGS = "Legs",
+        INVTYPE_FEET = "Feet",
+        INVTYPE_FINGER = "Finger",
+        INVTYPE_TRINKET = "Trinket",
+        INVTYPE_WEAPON = "One-Hand",
+        INVTYPE_SHIELD = "Off Hand",
+        INVTYPE_2HWEAPON = "Two-Hand",
+        INVTYPE_WEAPONMAINHAND = "Main Hand",
+        INVTYPE_WEAPONOFFHAND = "Off Hand",
+        INVTYPE_HOLDABLE = "Off Hand",
+        INVTYPE_RANGED = "Ranged",
+        INVTYPE_RANGEDRIGHT = "Ranged",
+    }
+    return slotNames[equipSlot] or ""
+end

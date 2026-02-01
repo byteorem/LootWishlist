@@ -1,0 +1,8 @@
+package-as: LootWishlist
+
+enable-nolib-creation: no
+
+ignore:
+    - README.md
+    - .git
+    - .github
