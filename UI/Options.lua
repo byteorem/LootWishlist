@@ -134,6 +134,9 @@ local function CreateOptionsPanel()
                     ns.ItemBrowser:Hide()
                     ns.ItemBrowser = nil
                     ns:ClearBrowserRowPools()
+                    if ns.MainWindow and ns.MainWindow.browseBtn then
+                        ns.MainWindow.browseBtn:SetText("Browse")
+                    end
                 end
             end)
         rootDescription:CreateRadio("Large",
@@ -145,6 +148,9 @@ local function CreateOptionsPanel()
                     ns.ItemBrowser:Hide()
                     ns.ItemBrowser = nil
                     ns:ClearBrowserRowPools()
+                    if ns.MainWindow and ns.MainWindow.browseBtn then
+                        ns.MainWindow.browseBtn:SetText("Browse")
+                    end
                 end
             end)
     end)
