@@ -1134,3 +1134,187 @@ function ns.UI:InitLootRow(row, dims)
     row.addBtn:SetHighlightTexture("Interface\\Buttons\\UI-PlusButton-Hilight")
     row.addBtn:GetNormalTexture():SetVertexColor(1, 0.82, 0)  -- Yellow/gold
 end
+
+-------------------------------------------------------------------------------
+-- Browser ScrollBox Row Helpers (for DataProvider pattern in ItemBrowser)
+-------------------------------------------------------------------------------
+
+-- Browser row height constants
+ns.UI.BROWSER_BOSS_ROW_HEIGHT = 28
+ns.UI.BROWSER_LOOT_ROW_HEIGHT = 22
+
+-- Initialize a browser ScrollBox row frame with all required elements
+function ns.UI:InitBrowserScrollBoxRow(row, dims)
+    local bossHeight = dims and dims.bossRowHeight or 28
+    local lootHeight = dims and dims.lootRowHeight or 22
+    local lootIconSize = dims and dims.lootIconSize or 18
+    local bossFont = dims and dims.bossFont or "GameFontNormal"
+    local lootNameFont = dims and dims.lootNameFont or "GameFontHighlightSmall"
+    local lootSlotFont = dims and dims.lootSlotFont or "GameFontNormalSmall"
+
+    row:EnableMouse(true)
+    row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+
+    -- Background gradient (always present)
+    row.bg = row:CreateTexture(nil, "BACKGROUND")
+    row.bg:SetAllPoints()
+    row.bg:SetColorTexture(1, 1, 1, 1)
+
+    -- Boss name (for boss headers)
+    row.bossName = row:CreateFontString(nil, "OVERLAY", bossFont)
+    row.bossName:SetPoint("LEFT", 8, 0)
+    row.bossName:SetPoint("RIGHT", -8, 0)
+    row.bossName:SetJustifyH("LEFT")
+    row.bossName:SetWordWrap(false)
+    row.bossName:Hide()
+
+    -- Checkmark for items already on wishlist
+    row.checkmark = row:CreateTexture(nil, "ARTWORK")
+    row.checkmark:SetSize(16, 16)
+    row.checkmark:SetPoint("LEFT", 4, 0)
+    row.checkmark:SetTexture("Interface\\RAIDFRAME\\ReadyCheck-Ready")
+    row.checkmark:SetVertexColor(0.2, 1, 0.2)
+    row.checkmark:Hide()
+
+    -- Icon (for loot items)
+    row.icon = row:CreateTexture(nil, "ARTWORK")
+    row.icon:SetSize(lootIconSize, lootIconSize)
+    row.icon:SetPoint("LEFT", 16, 0)
+    row.icon:Hide()
+
+    -- Item name (for loot items)
+    row.name = row:CreateFontString(nil, "OVERLAY", lootNameFont)
+    row.name:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
+    row.name:SetPoint("RIGHT", row, "RIGHT", -130, 0)
+    row.name:SetJustifyH("LEFT")
+    row.name:SetWordWrap(false)
+    row.name:Hide()
+
+    -- Slot label (for loot items)
+    row.slotLabel = row:CreateFontString(nil, "OVERLAY", lootSlotFont)
+    row.slotLabel:SetPoint("RIGHT", -34, 0)
+    row.slotLabel:SetWidth(110)
+    row.slotLabel:SetJustifyH("RIGHT")
+    row.slotLabel:SetTextColor(0.6, 0.6, 0.6)
+    row.slotLabel:Hide()
+
+    -- Add button (for loot items)
+    row.addBtn = CreateFrame("Button", nil, row)
+    row.addBtn:SetSize(16, 16)
+    row.addBtn:SetPoint("RIGHT", -4, 0)
+    row.addBtn:SetNormalTexture("Interface\\PaperDollInfoFrame\\Character-Plus")
+    row.addBtn:SetHighlightTexture("Interface\\Buttons\\UI-PlusButton-Hilight")
+    row.addBtn:GetNormalTexture():SetVertexColor(1, 0.82, 0)
+    row.addBtn:Hide()
+
+    -- Store dims for later use
+    row.dims = dims
+
+    row.initialized = true
+end
+
+-- Reset a browser ScrollBox row to default state
+function ns.UI:ResetBrowserScrollBoxRow(row)
+    row:Hide()
+    row.bossName:Hide()
+    row.checkmark:Hide()
+    row.icon:Hide()
+    row.name:Hide()
+    row.slotLabel:Hide()
+    row.addBtn:Hide()
+    row.rowType = nil
+    row.data = nil
+    row.itemID = nil
+    row.itemLink = nil
+    row.sourceText = nil
+    row.track = nil
+
+    -- Reset text colors
+    if row.name then row.name:SetTextColor(1, 1, 1) end
+
+    -- Clear scripts
+    row:SetScript("OnClick", nil)
+    row:SetScript("OnEnter", nil)
+    row:SetScript("OnLeave", nil)
+    row.addBtn:SetScript("OnClick", nil)
+end
+
+-- Configure a browser row as a boss header
+function ns.UI:SetupBrowserBossRow(row, data, width)
+    local dims = row.dims
+    local bossHeight = dims and dims.bossRowHeight or 28
+
+    row.rowType = "boss"
+    row.data = data
+    row:SetSize(width, bossHeight)
+
+    -- Set header gradient
+    self:SetGradient(row.bg, COLORS.headerLeft, COLORS.headerRight)
+
+    -- Store colors for hover
+    row.normalColors = {COLORS.headerLeft, COLORS.headerRight}
+    row.hoverColors = {COLORS.headerHoverLeft, COLORS.headerHoverRight}
+
+    -- Show boss name
+    row.bossName:SetText(data.name or "Unknown")
+    row.bossName:Show()
+
+    -- Hover effects
+    row:SetScript("OnEnter", function(self)
+        ns.UI:SetGradient(self.bg, self.hoverColors[1], self.hoverColors[2])
+    end)
+    row:SetScript("OnLeave", function(self)
+        ns.UI:SetGradient(self.bg, self.normalColors[1], self.normalColors[2])
+    end)
+end
+
+-- Configure a browser row as a loot item
+function ns.UI:SetupBrowserLootRow(row, data, width)
+    local dims = row.dims
+    local lootHeight = dims and dims.lootRowHeight or 22
+
+    row.rowType = "loot"
+    row.data = data
+    row.itemID = data.itemID
+    row.itemLink = data.link
+    row:SetSize(width, lootHeight)
+
+    -- Set row gradient (subtle)
+    self:SetGradient(row.bg, COLORS.rowLeft, COLORS.rowRight)
+
+    -- Store colors for hover
+    row.normalColors = {COLORS.rowLeft, COLORS.rowRight}
+    row.hoverColors = {COLORS.rowHoverLeft, COLORS.rowHoverRight}
+
+    -- Show icon
+    row.icon:SetTexture(data.icon or 134400)
+    row.icon:Show()
+
+    -- Show name
+    row.name:SetText(data.name or "Loading...")
+    row.name:Show()
+
+    -- Show slot
+    row.slotLabel:SetText(data.slot or "")
+    row.slotLabel:Show()
+
+    -- Show add button (may be hidden later if on wishlist)
+    row.addBtn:Show()
+
+    -- Hover effects
+    row:SetScript("OnEnter", function(self)
+        ns.UI:SetGradient(self.bg, self.hoverColors[1], self.hoverColors[2])
+    end)
+    row:SetScript("OnLeave", function(self)
+        ns.UI:SetGradient(self.bg, self.normalColors[1], self.normalColors[2])
+    end)
+end
+
+-- Get browser row extent for mixed heights
+function ns.UI:GetBrowserRowExtent(dataIndex, elementData, dims)
+    if elementData.rowType == "boss" then
+        return dims and dims.bossRowHeight or self.BROWSER_BOSS_ROW_HEIGHT
+    else
+        return dims and dims.lootRowHeight or self.BROWSER_LOOT_ROW_HEIGHT
+    end
+end

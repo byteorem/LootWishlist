@@ -15,6 +15,7 @@ local EJ_GetNumTiers, EJ_GetTierInfo = EJ_GetNumTiers, EJ_GetTierInfo
 local UIDropDownMenu_Initialize, UIDropDownMenu_CreateInfo, UIDropDownMenu_AddButton, UIDropDownMenu_SetText = UIDropDownMenu_Initialize, UIDropDownMenu_CreateInfo, UIDropDownMenu_AddButton, UIDropDownMenu_SetText
 local UnitClass = UnitClass
 local GameTooltip = GameTooltip
+local CreateDataProvider, CreateScrollBoxListLinearView, ScrollUtil = CreateDataProvider, CreateScrollBoxListLinearView, ScrollUtil
 
 -------------------------------------------------------------------------------
 -- Constants
@@ -160,11 +161,25 @@ ns.browserState = {
 -------------------------------------------------------------------------------
 
 ns.BrowserCache = {
+    -- Cache key fields (must match to be valid)
     instanceID = nil,
     classFilter = nil,
+    difficultyID = nil,
+    expansion = nil,
+    currentSeasonFilter = false,
+
+    -- Version for race condition safety
+    version = 0,
+
+    -- Cached data
     instanceName = "",
     bosses = {},       -- Array: {bossID, name, loot = {lootInfo...}}
-    allItemsLoaded = false,
+
+    -- Loading state: "idle" | "loading" | "ready"
+    loadingState = "idle",
+
+    -- Search index (N-gram prefix tree)
+    searchIndex = {},
 }
 
 -- Instance name cache to avoid repeated tier loops
@@ -219,34 +234,68 @@ local function IsCacheValid()
     local state = ns.browserState
     local cache = ns.BrowserCache
 
-    return cache.instanceID == state.selectedInstance
+    return cache.loadingState == "ready"
+       and cache.instanceID == state.selectedInstance
        and cache.classFilter == state.classFilter
+       and cache.difficultyID == state.selectedDifficultyID
+       and cache.expansion == state.expansion
+       and cache.currentSeasonFilter == state.currentSeasonFilter
 end
 
 -- Invalidate cache (called when data filters change)
 local function InvalidateCache()
     local cache = ns.BrowserCache
+    cache.version = cache.version + 1
     cache.instanceID = nil
     cache.classFilter = nil
+    cache.difficultyID = nil
+    cache.expansion = nil
+    cache.currentSeasonFilter = false
     cache.instanceName = ""
     wipe(cache.bosses)
-    cache.allItemsLoaded = false
+    wipe(cache.searchIndex)
+    cache.loadingState = "idle"
 end
 
--- Cache instance data from EJ API
-local function CacheInstanceData()
+-- Build search index entry for an item (N-gram prefix tree)
+local function BuildSearchIndexEntry(searchIndex, itemKey, searchable)
+    local lowerSearchable = searchable:lower()
+    local prefix = ""
+    local maxLen = math.min(#lowerSearchable, 20)
+    for i = 1, maxLen do
+        prefix = prefix .. lowerSearchable:sub(i, i)
+        if not searchIndex[prefix] then
+            searchIndex[prefix] = {}
+        end
+        searchIndex[prefix][itemKey] = true
+    end
+end
+
+-- Cache instance data from EJ API with async item loading
+local function CacheInstanceData(onComplete)
     local state = ns.browserState
     local cache = ns.BrowserCache
 
     if not state.selectedInstance then
         InvalidateCache()
-        return false
+        if onComplete then onComplete(false) end
+        return
     end
+
+    -- Mark loading state and capture version for race condition check
+    cache.loadingState = "loading"
+    local cacheVersion = cache.version
 
     local isRaid = (state.instanceType == "raid")
     local instanceName = GetCachedInstanceName(state.selectedInstance, isRaid, state.currentSeasonFilter)
 
+    -- CRITICAL: Select instance FIRST, then set difficulty
     EJ_SelectInstance(state.selectedInstance)
+
+    -- Set difficulty after instance selection
+    if state.selectedDifficultyID then
+        EJ_SetDifficulty(state.selectedDifficultyID)
+    end
 
     -- Apply class filter
     if state.classFilter > 0 then
@@ -255,9 +304,10 @@ local function CacheInstanceData()
         EJ_ResetLootFilter()
     end
 
-    -- Cache boss and loot data
+    -- Collect all boss and loot data
     local bosses = {}
-    local allItemsLoaded = true
+    local searchIndex = {}
+    local itemsToLoad = {}
     local bossIndex = 1
 
     while true do
@@ -273,19 +323,32 @@ local function CacheInstanceData()
             local lootInfo = C_EncounterJournal.GetLootInfoByIndex(lootIndex)
             if not lootInfo then break end
 
-            -- Check if item needs loading
-            if not lootInfo.name and lootInfo.itemID then
-                allItemsLoaded = false
-                C_Item.RequestLoadItemDataByID(lootInfo.itemID)
-            end
-
-            tinsert(lootList, {
+            local lootEntry = {
                 itemID = lootInfo.itemID,
-                name = lootInfo.name or "Loading...",
+                name = lootInfo.name or "",
                 icon = lootInfo.icon or 134400,
                 slot = lootInfo.slot or "",
+                filterType = lootInfo.filterType,  -- Store enum for filtering
                 link = lootInfo.link,
-            })
+                bossName = name,  -- Store for search indexing
+            }
+            tinsert(lootList, lootEntry)
+
+            -- Track items that need async loading
+            if lootInfo.itemID and (not lootInfo.name or lootInfo.name == "") then
+                tinsert(itemsToLoad, {
+                    itemID = lootInfo.itemID,
+                    lootEntry = lootEntry,
+                    bossName = name,
+                })
+            else
+                -- Item already loaded, build search index now
+                local itemKey = lootInfo.itemID .. "_" .. bossID
+                if lootInfo.name and lootInfo.name ~= "" then
+                    BuildSearchIndexEntry(searchIndex, itemKey, lootInfo.name)
+                end
+                BuildSearchIndexEntry(searchIndex, itemKey, name)
+            end
 
             lootIndex = lootIndex + 1
         end
@@ -302,14 +365,69 @@ local function CacheInstanceData()
         bossIndex = bossIndex + 1
     end
 
-    -- Store in cache
-    cache.instanceID = state.selectedInstance
-    cache.classFilter = state.classFilter
-    cache.instanceName = instanceName
-    cache.bosses = bosses
-    cache.allItemsLoaded = allItemsLoaded
+    -- Function to finalize cache
+    local function FinalizeCache()
+        -- Race condition check: version changed during async load
+        if cache.version ~= cacheVersion then
+            if onComplete then onComplete(false) end
+            return
+        end
 
-    return allItemsLoaded
+        -- Store in cache
+        cache.instanceID = state.selectedInstance
+        cache.classFilter = state.classFilter
+        cache.difficultyID = state.selectedDifficultyID
+        cache.expansion = state.expansion
+        cache.currentSeasonFilter = state.currentSeasonFilter
+        cache.instanceName = instanceName
+        cache.bosses = bosses
+        cache.searchIndex = searchIndex
+        cache.loadingState = "ready"
+
+        if onComplete then onComplete(true) end
+    end
+
+    -- If items need async loading, use ContinuableContainer
+    if #itemsToLoad > 0 then
+        local continuableContainer = ContinuableContainer:Create()
+
+        for _, itemData in ipairs(itemsToLoad) do
+            local item = Item:CreateFromItemID(itemData.itemID)
+            continuableContainer:AddContinuable(item)
+        end
+
+        continuableContainer:ContinueOnLoad(function()
+            -- Race condition check before processing results
+            if cache.version ~= cacheVersion then
+                if onComplete then onComplete(false) end
+                return
+            end
+
+            -- Update loot entries with loaded item data and build search index
+            for _, itemData in ipairs(itemsToLoad) do
+                local item = Item:CreateFromItemID(itemData.itemID)
+                local itemName = item:GetItemName()
+                local itemIcon = item:GetItemIcon()
+                local itemLink = item:GetItemLink()
+
+                itemData.lootEntry.name = itemName or "Unknown"
+                itemData.lootEntry.icon = itemIcon or 134400
+                itemData.lootEntry.link = itemLink or itemData.lootEntry.link
+
+                -- Build search index for loaded item
+                local itemKey = itemData.itemID .. "_loaded"
+                if itemName and itemName ~= "" then
+                    BuildSearchIndexEntry(searchIndex, itemKey, itemName)
+                end
+                BuildSearchIndexEntry(searchIndex, itemKey, itemData.bossName)
+            end
+
+            FinalizeCache()
+        end)
+    else
+        -- All items already loaded
+        FinalizeCache()
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -318,8 +436,54 @@ end
 
 ns.BrowserFilter = {}
 
--- Check if slot passes filter
-function ns.BrowserFilter:PassesSlotFilter(itemSlot, slotFilter)
+-- Enum-based slot filter mapping
+-- Maps our dropdown IDs to Enum.ItemSlotFilterType values
+local SLOT_FILTER_MAP = {
+    ["ALL"] = nil,  -- No filter
+    ["INVTYPE_HEAD"] = {Enum.ItemSlotFilterType.Head},
+    ["INVTYPE_NECK"] = {Enum.ItemSlotFilterType.Neck},
+    ["INVTYPE_SHOULDER"] = {Enum.ItemSlotFilterType.Shoulder},
+    ["INVTYPE_CLOAK"] = {Enum.ItemSlotFilterType.Back},
+    ["INVTYPE_CHEST"] = {Enum.ItemSlotFilterType.Chest},
+    ["INVTYPE_ROBE"] = {Enum.ItemSlotFilterType.Chest},
+    ["INVTYPE_WRIST"] = {Enum.ItemSlotFilterType.Wrist},
+    ["INVTYPE_HAND"] = {Enum.ItemSlotFilterType.Hands},
+    ["INVTYPE_WAIST"] = {Enum.ItemSlotFilterType.Waist},
+    ["INVTYPE_LEGS"] = {Enum.ItemSlotFilterType.Legs},
+    ["INVTYPE_FEET"] = {Enum.ItemSlotFilterType.Feet},
+    ["INVTYPE_FINGER"] = {Enum.ItemSlotFilterType.Finger},
+    ["INVTYPE_TRINKET"] = {Enum.ItemSlotFilterType.Trinket},
+    ["WEAPON"] = {
+        Enum.ItemSlotFilterType.MainHand,
+        Enum.ItemSlotFilterType.OffHand,
+        Enum.ItemSlotFilterType.TwoHand,
+        Enum.ItemSlotFilterType.OneHand,
+    },
+}
+
+-- Check if filterType passes slot filter (enum-based)
+function ns.BrowserFilter:PassesSlotFilter(filterType, slotFilter)
+    if slotFilter == "ALL" then
+        return true
+    end
+
+    local allowedTypes = SLOT_FILTER_MAP[slotFilter]
+    if not allowedTypes then
+        return true  -- Unknown filter, allow all
+    end
+
+    -- Check if filterType matches any allowed type
+    for _, allowedType in ipairs(allowedTypes) do
+        if filterType == allowedType then
+            return true
+        end
+    end
+
+    return false
+end
+
+-- Legacy string-based slot filter (fallback for items without filterType)
+function ns.BrowserFilter:PassesSlotFilterLegacy(itemSlot, slotFilter)
     if slotFilter == "ALL" then
         return true
     end
@@ -341,14 +505,35 @@ function ns.BrowserFilter:PassesSlotFilter(itemSlot, slotFilter)
     return false
 end
 
--- Check if item passes search filter
-function ns.BrowserFilter:PassesSearchFilter(itemName, bossName, searchText)
-    if searchText == "" then
+-- Check if item passes search filter using indexed lookup
+function ns.BrowserFilter:PassesSearchFilter(itemID, bossID, searchText, searchIndex)
+    if not searchText or searchText == "" then
+        return true
+    end
+
+    local searchLower = searchText:lower()
+
+    -- Use search index for O(1) lookup
+    if searchIndex and searchIndex[searchLower] then
+        -- Check if any key containing this itemID matches
+        for itemKey in pairs(searchIndex[searchLower]) do
+            if itemKey:find(tostring(itemID)) then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+-- Legacy search filter (fallback for string matching)
+function ns.BrowserFilter:PassesSearchFilterLegacy(itemName, bossName, searchText)
+    if not searchText or searchText == "" then
         return true
     end
     local searchLower = searchText:lower()
-    return itemName:lower():find(searchLower, 1, true)
-        or bossName:lower():find(searchLower, 1, true)
+    return (itemName and itemName:lower():find(searchLower, 1, true))
+        or (bossName and bossName:lower():find(searchLower, 1, true))
 end
 
 -- Get filtered data ready for rendering
@@ -361,8 +546,25 @@ function ns.BrowserFilter:GetFilteredData()
         local filteredLoot = {}
 
         for _, loot in ipairs(boss.loot) do
-            local passesSlot = self:PassesSlotFilter(loot.slot, state.slotFilter)
-            local passesSearch = self:PassesSearchFilter(loot.name, boss.name, state.searchText)
+            -- Use enum-based filter if filterType available, else legacy string
+            local passesSlot
+            if loot.filterType then
+                passesSlot = self:PassesSlotFilter(loot.filterType, state.slotFilter)
+            else
+                passesSlot = self:PassesSlotFilterLegacy(loot.slot or "", state.slotFilter)
+            end
+
+            -- Use indexed search if available, else legacy string match
+            local passesSearch
+            if cache.searchIndex and next(cache.searchIndex) then
+                passesSearch = self:PassesSearchFilter(loot.itemID, boss.bossID, state.searchText, cache.searchIndex)
+                -- Fallback to legacy if index miss (in case of partial indexing)
+                if not passesSearch and state.searchText ~= "" then
+                    passesSearch = self:PassesSearchFilterLegacy(loot.name, boss.name, state.searchText)
+                end
+            else
+                passesSearch = self:PassesSearchFilterLegacy(loot.name, boss.name, state.searchText)
+            end
 
             if passesSlot and passesSearch then
                 tinsert(filteredLoot, loot)
@@ -382,38 +584,49 @@ function ns.BrowserFilter:GetFilteredData()
     return result
 end
 
+-- Build flattened data for DataProvider from filtered data
+function ns.BrowserFilter:BuildRightPanelData(filteredData)
+    local data = {}
+    local cache = ns.BrowserCache
+
+    for _, bossData in ipairs(filteredData) do
+        -- Add boss header row
+        tinsert(data, {
+            rowType = "boss",
+            bossID = bossData.bossID,
+            name = bossData.name,
+        })
+
+        -- Add loot item rows
+        for _, loot in ipairs(bossData.loot) do
+            tinsert(data, {
+                rowType = "loot",
+                itemID = loot.itemID,
+                name = loot.name,
+                icon = loot.icon,
+                slot = loot.slot,
+                filterType = loot.filterType,
+                link = loot.link,
+                bossName = bossData.name,
+                instanceName = cache.instanceName,
+            })
+        end
+    end
+
+    return data
+end
+
 -------------------------------------------------------------------------------
--- Frame Pools
+-- Frame Pools (left panel only - right panel uses ScrollBox)
 -------------------------------------------------------------------------------
 
-local instanceRowPool, bossRowPool, lootRowPool
+local instanceRowPool
 
 local function ResetInstanceRow(pool, row)
     row:Hide()
     row:ClearAllPoints()
     row.instanceID = nil
     row:SetScript("OnClick", nil)
-end
-
-local function ResetBossRow(pool, row)
-    row:Hide()
-    row:ClearAllPoints()
-    row.bossID = nil
-end
-
-local function ResetLootRow(pool, row)
-    row:Hide()
-    row:ClearAllPoints()
-    row.itemID = nil
-    row.itemLink = nil
-    row.sourceText = nil
-    row.track = nil
-    if row.checkmark then row.checkmark:Hide() end
-    if row.name then row.name:SetTextColor(1, 1, 1) end
-    if row.addBtn then row.addBtn:Show() end
-    row:SetScript("OnClick", nil)
-    row:SetScript("OnEnter", nil)
-    row:SetScript("OnLeave", nil)
 end
 
 -------------------------------------------------------------------------------
@@ -479,116 +692,31 @@ function ns:SetDefaultDifficulty(state)
 end
 
 -------------------------------------------------------------------------------
--- Render Layer
+-- Render Layer (DataProvider pattern)
 -------------------------------------------------------------------------------
 
--- Render right panel from filtered data
+-- Render right panel using DataProvider/ScrollBox
 local function RenderRightPanel(filteredData)
     local frame = ns.ItemBrowser
-    if not frame then return end
+    if not frame or not frame.rightScrollBox then return end
 
-    local scrollChild = frame.rightScrollChild
     local state = ns.browserState
-    local cache = ns.BrowserCache
     local dims = frame.dims
 
-    bossRowPool:ReleaseAll()
-    lootRowPool:ReleaseAll()
+    -- Build flattened data for DataProvider
+    local data = ns.BrowserFilter:BuildRightPanelData(filteredData)
 
-    local yOffset = 0
-    local rowCount = 0
-
-    for _, bossData in ipairs(filteredData) do
-        -- Render boss header
-        rowCount = rowCount + 1
-        local bossRow = bossRowPool:Acquire()
-
-        if not bossRow.name then
-            ns.UI:InitBossRow(bossRow, dims)
-        end
-
-        bossRow:SetWidth(scrollChild:GetWidth())
-        bossRow:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, yOffset)
-        bossRow.name:SetText(bossData.name)
-        bossRow.bossID = bossData.bossID
-        bossRow:SetScript("OnClick", nil)
-        bossRow:EnableMouse(false)
-        bossRow:Show()
-
-        yOffset = yOffset - dims.bossRowHeight
-
-        -- Render loot rows
-        for _, loot in ipairs(bossData.loot) do
-            rowCount = rowCount + 1
-            local lootRow = lootRowPool:Acquire()
-
-            if not lootRow.name then
-                ns.UI:InitLootRow(lootRow, dims)
-            end
-
-            lootRow:SetWidth(scrollChild:GetWidth())
-            lootRow:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, yOffset)
-            lootRow.name:SetText(loot.name)
-            lootRow.icon:SetTexture(loot.icon)
-            lootRow.slotLabel:SetText(loot.slot)
-            lootRow.itemID = loot.itemID
-            lootRow.itemLink = loot.link
-            lootRow.track = state.selectedTrack
-
-            -- Build source text
-            local sourceText = bossData.name .. ", " .. cache.instanceName
-            lootRow.sourceText = sourceText
-
-            -- Check if already on wishlist
-            local isOnWishlist = ns:IsItemOnWishlistWithSource(loot.itemID, sourceText, nil, state.selectedTrack)
-            if isOnWishlist then
-                lootRow.checkmark:Show()
-                lootRow.name:SetTextColor(0.5, 0.5, 0.5)
-                lootRow.addBtn:Hide()
-            else
-                lootRow.checkmark:Hide()
-                lootRow.name:SetTextColor(1, 1, 1)
-                lootRow.addBtn:Show()
-            end
-
-            -- Add item handler
-            local function addItemHandler()
-                local track = state.selectedTrack or "hero"
-                local success = ns:AddItemToWishlist(loot.itemID, nil, sourceText, track, loot.link)
-                if success then
-                    ns:MarkRowAsAdded(lootRow, loot.itemID)
-                    ns:RefreshMainWindow()
-                end
-            end
-
-            lootRow.addBtn:SetScript("OnClick", addItemHandler)
-            lootRow:SetScript("OnClick", addItemHandler)
-
-            lootRow:SetScript("OnEnter", function(self)
-                if loot.link then
-                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                    GameTooltip:SetHyperlink(loot.link)
-                    GameTooltip:Show()
-                end
-            end)
-            lootRow:SetScript("OnLeave", function()
-                GameTooltip:Hide()
-            end)
-
-            lootRow:Show()
-            yOffset = yOffset - dims.lootRowHeight
-        end
-    end
+    -- Create and set DataProvider
+    local dataProvider = CreateDataProvider(data)
+    frame.rightScrollBox:SetDataProvider(dataProvider)
 
     -- Hide loading indicator
     if frame.loadingFrame then frame.loadingFrame:Hide() end
 
     -- Show/hide "No Items" indicator
     if frame.noItemsFrame then
-        frame.noItemsFrame:SetShown(rowCount == 0)
+        frame.noItemsFrame:SetShown(#data == 0)
     end
-
-    scrollChild:SetHeight(math.max(math.abs(yOffset), 1))
 end
 
 -------------------------------------------------------------------------------
@@ -735,7 +863,7 @@ function ns:CreateItemBrowser()
     leftScroll:SetScrollChild(leftScrollChild)
     frame.leftScrollChild = leftScrollChild
 
-    -- Right panel (boss/items)
+    -- Right panel (boss/items) - using WowScrollBoxList pattern
     local rightPanel = CreateFrame("Frame", nil, contentFrame, "BackdropTemplate")
     rightPanel:SetPoint("TOPLEFT", leftPanel, "TOPRIGHT", 5, 0)
     rightPanel:SetPoint("BOTTOMRIGHT", 0, 0)
@@ -749,24 +877,99 @@ function ns:CreateItemBrowser()
     rightPanel:SetBackdropBorderColor(0.3, 0.3, 0.3)
     frame.rightPanel = rightPanel
 
-    local rightScroll = CreateFrame("ScrollFrame", nil, rightPanel, "UIPanelScrollFrameTemplate")
-    rightScroll:SetPoint("TOPLEFT", 2, -2)
-    rightScroll:SetPoint("BOTTOMRIGHT", -20, 2)
+    -- Create ScrollBox for right panel (virtual scrolling)
+    local rightScrollBox = CreateFrame("Frame", nil, rightPanel, "WowScrollBoxList")
+    rightScrollBox:SetPoint("TOPLEFT", 2, -2)
+    rightScrollBox:SetPoint("BOTTOMRIGHT", -20, 2)
 
-    local rightScrollChild = CreateFrame("Frame", nil, rightScroll)
-    rightScrollChild:SetSize(rightPanel:GetWidth() - 24, 1)
-    rightScroll:SetScrollChild(rightScrollChild)
-    frame.rightScrollChild = rightScrollChild
+    local rightScrollBar = CreateFrame("EventFrame", nil, rightPanel, "MinimalScrollBar")
+    rightScrollBar:SetPoint("TOPLEFT", rightScrollBox, "TOPRIGHT", 2, 0)
+    rightScrollBar:SetPoint("BOTTOMLEFT", rightScrollBox, "BOTTOMRIGHT", 2, 0)
 
-    -- Initialize frame pools
+    -- Create view with element extent calculator for mixed row heights
+    local rightView = CreateScrollBoxListLinearView()
+
+    rightView:SetElementExtentCalculator(function(dataIndex, elementData)
+        return ns.UI:GetBrowserRowExtent(dataIndex, elementData, dims)
+    end)
+
+    -- Element initializer - configures each row based on data type
+    rightView:SetElementInitializer("Button", function(rowFrame, elementData)
+        -- First-time setup
+        if not rowFrame.initialized then
+            ns.UI:InitBrowserScrollBoxRow(rowFrame, dims)
+        end
+
+        -- Reset row state
+        ns.UI:ResetBrowserScrollBoxRow(rowFrame)
+
+        local scrollWidth = rightScrollBox:GetWidth()
+        local state = ns.browserState
+        local cache = ns.BrowserCache
+
+        if elementData.rowType == "boss" then
+            ns.UI:SetupBrowserBossRow(rowFrame, elementData, scrollWidth)
+            rowFrame:EnableMouse(false)  -- Boss headers are not clickable
+        else
+            ns.UI:SetupBrowserLootRow(rowFrame, elementData, scrollWidth)
+
+            -- Build source text
+            local sourceText = elementData.bossName .. ", " .. (elementData.instanceName or cache.instanceName)
+            rowFrame.sourceText = sourceText
+            rowFrame.track = state.selectedTrack
+
+            -- Check if already on wishlist
+            local isOnWishlist = ns:IsItemOnWishlistWithSource(elementData.itemID, sourceText, nil, state.selectedTrack)
+            if isOnWishlist then
+                rowFrame.checkmark:Show()
+                rowFrame.name:SetTextColor(0.5, 0.5, 0.5)
+                rowFrame.addBtn:Hide()
+            else
+                rowFrame.checkmark:Hide()
+                rowFrame.name:SetTextColor(1, 1, 1)
+                rowFrame.addBtn:Show()
+            end
+
+            -- Add item handler
+            local function addItemHandler()
+                local track = state.selectedTrack or "hero"
+                local success = ns:AddItemToWishlist(elementData.itemID, nil, sourceText, track, elementData.link)
+                if success then
+                    ns:MarkRowAsAdded(rowFrame, elementData.itemID)
+                    ns:RefreshMainWindow()
+                end
+            end
+
+            rowFrame.addBtn:SetScript("OnClick", addItemHandler)
+            rowFrame:SetScript("OnClick", addItemHandler)
+
+            rowFrame:SetScript("OnEnter", function(self)
+                ns.UI:SetGradient(self.bg, self.hoverColors[1], self.hoverColors[2])
+                if elementData.link then
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    GameTooltip:SetHyperlink(elementData.link)
+                    GameTooltip:Show()
+                end
+            end)
+            rowFrame:SetScript("OnLeave", function(self)
+                ns.UI:SetGradient(self.bg, self.normalColors[1], self.normalColors[2])
+                GameTooltip:Hide()
+            end)
+        end
+
+        rowFrame:Show()
+    end)
+
+    -- Initialize ScrollBox with ScrollBar
+    ScrollUtil.InitScrollBoxListWithScrollBar(rightScrollBox, rightScrollBar, rightView)
+
+    frame.rightScrollBox = rightScrollBox
+    frame.rightScrollBar = rightScrollBar
+    frame.rightView = rightView
+
+    -- Initialize frame pool for left panel only (right panel uses ScrollBox)
     if not instanceRowPool then
         instanceRowPool = CreateFramePool("Button", leftScrollChild, nil, ResetInstanceRow)
-    end
-    if not bossRowPool then
-        bossRowPool = CreateFramePool("Button", rightScrollChild, nil, ResetBossRow)
-    end
-    if not lootRowPool then
-        lootRowPool = CreateFramePool("Button", rightScrollChild, nil, ResetLootRow)
     end
 
     -- Loading indicator with spinner
@@ -818,21 +1021,17 @@ function ns:CreateItemBrowser()
 
     frame.noItemsFrame = noItemsFrame
 
-    -- Register for EJ loot data callback and M+ season changes
-    frame:RegisterEvent("EJ_LOOT_DATA_RECIEVED")
+    -- Register for M+ season changes (EJ_LOOT_DATA_RECIEVED no longer needed - handled by ItemMixin)
     frame:RegisterEvent("CHALLENGE_MODE_MAPS_UPDATE")
     frame:SetScript("OnEvent", function(self, event)
-        if event == "EJ_LOOT_DATA_RECIEVED" then
-            if ns.ItemBrowser:IsShown() and ns.browserState.selectedInstance then
-                -- Data arrived, invalidate cache and refresh
-                InvalidateCache()
-                ns:RefreshRightPanel()
-            end
-        elseif event == "CHALLENGE_MODE_MAPS_UPDATE" then
+        if event == "CHALLENGE_MODE_MAPS_UPDATE" then
             -- M+ season changed, invalidate season cache
             InvalidateSeasonCache()
             if ns.ItemBrowser:IsShown() and ns.browserState.currentSeasonFilter then
-                ns:RefreshBrowser()
+                -- Only refresh if not currently loading
+                if ns.BrowserCache.loadingState ~= "loading" then
+                    ns:RefreshBrowser()
+                end
             end
         end
     end)
@@ -1191,35 +1390,37 @@ function ns:RefreshRightPanel()
     if not frame or not frame:IsShown() then return end
 
     local state = ns.browserState
+    local cache = ns.BrowserCache
 
     if not state.selectedInstance then
         if frame.loadingFrame then frame.loadingFrame:Hide() end
-        bossRowPool:ReleaseAll()
-        lootRowPool:ReleaseAll()
-        frame.rightScrollChild:SetHeight(1)
+        if frame.rightScrollBox then
+            frame.rightScrollBox:SetDataProvider(CreateDataProvider({}))
+        end
         return
     end
 
     -- Check cache validity
     if not IsCacheValid() then
-        -- Clear previous items and show loading spinner
-        bossRowPool:ReleaseAll()
-        lootRowPool:ReleaseAll()
-        frame.rightScrollChild:SetHeight(1)
+        -- Don't start new load if already loading
+        if cache.loadingState == "loading" then
+            return
+        end
+
+        -- Show loading spinner
         if frame.loadingFrame then frame.loadingFrame:Show() end
+        if frame.noItemsFrame then frame.noItemsFrame:Hide() end
 
         -- Defer cache building to next frame so spinner renders
         C_Timer.After(0, function()
-            local allLoaded = CacheInstanceData()
-
-            if not allLoaded then
-                -- Items still loading, EJ_LOOT_DATA_RECIEVED will trigger refresh
-                return
-            end
-
-            -- Cache ready, filter and render
-            local filteredData = ns.BrowserFilter:GetFilteredData()
-            RenderRightPanel(filteredData)
+            CacheInstanceData(function(success)
+                if success then
+                    -- Cache ready, filter and render
+                    local filteredData = ns.BrowserFilter:GetFilteredData()
+                    RenderRightPanel(filteredData)
+                end
+                -- If not success, version changed - another refresh will handle it
+            end)
         end)
     else
         -- Cache valid, just filter and render (instant)
@@ -1259,17 +1460,9 @@ function ns:MarkRowAsAvailable(row, sourceText)
 end
 
 function ns:UpdateBrowserRowsForItem(itemID, sourceText)
-    if not lootRowPool then return end
-
-    for row in lootRowPool:EnumerateActive() do
-        if row.itemID == itemID and row.sourceText == sourceText and row:IsShown() then
-            local isOnWishlist = ns:IsItemOnWishlistWithSource(itemID, sourceText)
-            if isOnWishlist then
-                ns:MarkRowAsAdded(row, itemID)
-            else
-                ns:MarkRowAsAvailable(row, row.sourceText)
-            end
-        end
+    -- With ScrollBox/DataProvider, just refresh the right panel to update row state
+    if ns.ItemBrowser and ns.ItemBrowser:IsShown() then
+        ns:RefreshRightPanel()
     end
 end
 
@@ -1278,12 +1471,9 @@ end
 -------------------------------------------------------------------------------
 
 function ns:ClearBrowserRowPools()
+    -- Only the left panel uses frame pools now
     if instanceRowPool then instanceRowPool:ReleaseAll() end
-    if bossRowPool then bossRowPool:ReleaseAll() end
-    if lootRowPool then lootRowPool:ReleaseAll() end
     instanceRowPool = nil
-    bossRowPool = nil
-    lootRowPool = nil
 end
 
 function ns:CleanupItemBrowser()

@@ -16,7 +16,7 @@ local select = select
 local strsplit = strsplit
 
 -- Safe secret value check (12.0.0+ compatibility)
-local SafeIsSecretValue = issecretvalue or function() return false end
+local SafeIsSecretValue = issecurevariable or function() return false end
 
 -- Active glow frames
 local glowFrames = {}
