@@ -781,16 +781,27 @@ function ns:CreateItemBrowser()
     spinner:SetTexture("Interface\\COMMON\\StreamCircle")
     loadingFrame.spinner = spinner
 
+    -- Create AnimationGroup for rotation
+    local animGroup = spinner:CreateAnimationGroup()
+    local rotation = animGroup:CreateAnimation("Rotation")
+    rotation:SetDegrees(-360)
+    rotation:SetDuration(1)
+    rotation:SetSmoothing("NONE")
+    animGroup:SetLooping("REPEAT")
+    loadingFrame.animGroup = animGroup
+
+    -- Auto-start/stop animation on show/hide
+    loadingFrame:HookScript("OnShow", function(self)
+        self.animGroup:Play()
+    end)
+    loadingFrame:HookScript("OnHide", function(self)
+        self.animGroup:Stop()
+    end)
+
     local loadingText = loadingFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     loadingText:SetPoint("TOP", spinner, "BOTTOM", 0, -5)
     loadingText:SetText("Loading...")
     loadingText:SetTextColor(0.6, 0.6, 0.6)
-
-    loadingFrame:SetScript("OnUpdate", function(self, elapsed)
-        local rotation = (self.rotation or 0) - elapsed * 2
-        spinner:SetRotation(rotation)
-        self.rotation = rotation
-    end)
 
     frame.loadingFrame = loadingFrame
 
@@ -1191,7 +1202,10 @@ function ns:RefreshRightPanel()
 
     -- Check cache validity
     if not IsCacheValid() then
-        -- Show loading spinner while caching
+        -- Clear previous items and show loading spinner
+        bossRowPool:ReleaseAll()
+        lootRowPool:ReleaseAll()
+        frame.rightScrollChild:SetHeight(1)
         if frame.loadingFrame then frame.loadingFrame:Show() end
 
         -- Defer cache building to next frame so spinner renders
