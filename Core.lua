@@ -7,6 +7,8 @@ local addonName, ns = ...
 local pairs, ipairs, type, tostring = pairs, ipairs, type, tostring
 local wipe, print = wipe, print
 local CreateFrame, StaticPopup_Show = CreateFrame, StaticPopup_Show
+local ReloadUI = ReloadUI
+local EventRegistry = EventRegistry
 
 -- Addon namespace
 LootWishlist = ns
@@ -15,24 +17,47 @@ ns.addonName = addonName
 -- Version info
 ns.version = "1.0.0"
 
--- Event frame
+-- Store callback handles for cleanup (consistent with Events.lua pattern)
+local coreEventHandles = {}
+
+-- Event frame (still needed for ADDON_LOADED which fires before EventRegistry is fully ready)
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
-frame:RegisterEvent("PLAYER_LOGIN")
-frame:RegisterEvent("PLAYER_LOGOUT")
 
 frame:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" and arg1 == addonName then
         ns:InitializeDatabase()
         self:UnregisterEvent("ADDON_LOADED")
-    elseif event == "PLAYER_LOGIN" then
-        ns:OnPlayerLogin()
-        self:UnregisterEvent("PLAYER_LOGIN")
-    elseif event == "PLAYER_LOGOUT" then
-        -- Remove checked items on logout
-        ns:RemoveCheckedItems()
+
+        -- Register remaining events using EventRegistry (consistent with Events.lua)
+        coreEventHandles.playerLogin = EventRegistry:RegisterFrameEventAndCallback(
+            "PLAYER_LOGIN", ns.OnPlayerLogin, ns)
+        coreEventHandles.playerLogout = EventRegistry:RegisterFrameEventAndCallback(
+            "PLAYER_LOGOUT", ns.OnPlayerLogout, ns)
+        coreEventHandles.playerEnteringWorld = EventRegistry:RegisterFrameEventAndCallback(
+            "PLAYER_ENTERING_WORLD", ns.OnPlayerEnteringWorld, ns)
     end
 end)
+
+-- Event handlers
+function ns:OnPlayerLogout()
+    -- Remove checked items on logout
+    self:RemoveCheckedItems()
+
+    -- Cleanup all modules
+    if self.CleanupEvents then self:CleanupEvents() end
+    if self.CleanupMainWindow then self:CleanupMainWindow() end
+    if self.CleanupItemBrowser then self:CleanupItemBrowser() end
+end
+
+function ns:OnPlayerEnteringWorld(event, isInitialLogin, isReloadingUi)
+    -- Refresh MainWindow on zone transitions if it's shown
+    if not isInitialLogin and not isReloadingUi then
+        if ns.MainWindow and ns.MainWindow:IsShown() then
+            ns:RefreshMainWindow()
+        end
+    end
+end
 
 -- Called after player login
 function ns:OnPlayerLogin()
@@ -142,58 +167,61 @@ function ns:TestAlert()
     end
 end
 
+-- Define StaticPopupDialogs once at load time (not recreated on each call)
+StaticPopupDialogs["LOOTWISHLIST_RESET_CONFIRM"] = {
+    text = "Reset all LootWishlist data? This cannot be undone.",
+    button1 = "Yes",
+    button2 = "No",
+    OnAccept = function()
+        wipe(LootWishlistDB)
+        wipe(LootWishlistCharDB)
+        ns:InitializeDatabase()
+        print("|cff00ccffLootWishlist|r: Data reset.")
+        ReloadUI()
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+}
+
+StaticPopupDialogs["LOOTWISHLIST_DELETE_ALL_CONFIRM"] = {
+    text = "Delete ALL LootWishlist data?\n\nThis will remove all wishlists, settings, and collected item tracking.\n\nType WISHLIST to confirm:",
+    button1 = "Delete",
+    button2 = "Cancel",
+    hasEditBox = true,
+    showAlert = true,
+    OnShow = function(self)
+        local acceptButton = self.button1 or (self.Buttons and self.Buttons[1])
+        if acceptButton then acceptButton:Disable() end
+        self.EditBox:SetText("")
+        self.EditBox:SetFocus()
+    end,
+    EditBoxOnTextChanged = function(self)
+        local parent = self:GetParent()
+        local acceptButton = parent.button1 or (parent.Buttons and parent.Buttons[1])
+        if acceptButton then
+            if self:GetText():upper() == "WISHLIST" then
+                acceptButton:Enable()
+            else
+                acceptButton:Disable()
+            end
+        end
+    end,
+    OnAccept = function()
+        wipe(LootWishlistDB)
+        wipe(LootWishlistCharDB)
+        ns:InitializeDatabase()
+        ReloadUI()
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+}
+
 function ns:ResetDatabase()
-    StaticPopupDialogs["LOOTWISHLIST_RESET_CONFIRM"] = {
-        text = "Reset all LootWishlist data? This cannot be undone.",
-        button1 = "Yes",
-        button2 = "No",
-        OnAccept = function()
-            wipe(LootWishlistDB)
-            wipe(LootWishlistCharDB)
-            ns:InitializeDatabase()
-            print("|cff00ccffLootWishlist|r: Data reset.")
-            ReloadUI()
-        end,
-        timeout = 0,
-        whileDead = true,
-        hideOnEscape = true,
-    }
     StaticPopup_Show("LOOTWISHLIST_RESET_CONFIRM")
 end
 
 function ns:ShowDeleteAllDataDialog()
-    StaticPopupDialogs["LOOTWISHLIST_DELETE_ALL_CONFIRM"] = {
-        text = "Delete ALL LootWishlist data?\n\nThis will remove all wishlists, settings, and collected item tracking.\n\nType WISHLIST to confirm:",
-        button1 = "Delete",
-        button2 = "Cancel",
-        hasEditBox = true,
-        showAlert = true,
-        OnShow = function(self)
-            local acceptButton = self.button1 or (self.Buttons and self.Buttons[1])
-            if acceptButton then acceptButton:Disable() end
-            self.EditBox:SetText("")
-            self.EditBox:SetFocus()
-        end,
-        EditBoxOnTextChanged = function(self)
-            local parent = self:GetParent()
-            local acceptButton = parent.button1 or (parent.Buttons and parent.Buttons[1])
-            if acceptButton then
-                if self:GetText():upper() == "WISHLIST" then
-                    acceptButton:Enable()
-                else
-                    acceptButton:Disable()
-                end
-            end
-        end,
-        OnAccept = function()
-            wipe(LootWishlistDB)
-            wipe(LootWishlistCharDB)
-            ns:InitializeDatabase()
-            ReloadUI()
-        end,
-        timeout = 0,
-        whileDead = true,
-        hideOnEscape = true,
-    }
     StaticPopup_Show("LOOTWISHLIST_DELETE_ALL_CONFIRM")
 end

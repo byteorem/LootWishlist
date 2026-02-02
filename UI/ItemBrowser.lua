@@ -12,6 +12,7 @@ local EJ_SelectTier, EJ_SetLootFilter, EJ_ResetLootFilter, EJ_SetDifficulty = EJ
 local EJ_GetInstanceByIndex, EJ_SelectInstance, EJ_GetEncounterInfoByIndex, EJ_SelectEncounter = EJ_GetInstanceByIndex, EJ_SelectInstance, EJ_GetEncounterInfoByIndex, EJ_SelectEncounter
 local UIDropDownMenu_Initialize, UIDropDownMenu_CreateInfo, UIDropDownMenu_AddButton, UIDropDownMenu_SetText = UIDropDownMenu_Initialize, UIDropDownMenu_CreateInfo, UIDropDownMenu_AddButton, UIDropDownMenu_SetText
 local UnitClass = UnitClass
+local GameTooltip = GameTooltip
 
 -- Size presets for Normal and Large modes
 local SIZE_PRESETS = {
@@ -1149,4 +1150,15 @@ function ns:ClearBrowserRowPools()
     instanceRowPool = nil
     bossRowPool = nil
     lootRowPool = nil
+end
+
+-- Cleanup ItemBrowser resources
+function ns:CleanupItemBrowser()
+    -- Release all pooled rows
+    ns:ClearBrowserRowPools()
+
+    -- Unregister events from browser frame
+    if ns.ItemBrowser then
+        ns.ItemBrowser:UnregisterAllEvents()
+    end
 end

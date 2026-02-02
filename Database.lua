@@ -81,13 +81,23 @@ local CHAR_DEFAULTS = {
 }
 
 -- Deep merge: copy missing keys from source to target
+-- Type-safe: validates types before merging to prevent corrupted data propagation
 local function DeepMerge(target, source)
+    -- Validate inputs
+    if type(target) ~= "table" or type(source) ~= "table" then
+        return target
+    end
+
     for key, value in pairs(source) do
         if type(value) == "table" then
-            if type(target[key]) ~= "table" then
+            -- Only merge if target is also a table (or nil)
+            if target[key] == nil then
                 target[key] = {}
             end
-            DeepMerge(target[key], value)
+            if type(target[key]) == "table" then
+                DeepMerge(target[key], value)
+            end
+            -- If target[key] is not a table, preserve user's data (type mismatch)
         else
             if target[key] == nil then
                 target[key] = value
@@ -113,6 +123,11 @@ function ns:InitializeDatabase()
     -- Store references
     self.db = LootWishlistDB
     self.charDB = LootWishlistCharDB
+
+    -- Rebuild wishlist lookup index for O(1) item checks
+    if self.RebuildWishlistIndex then
+        self:RebuildWishlistIndex()
+    end
 end
 
 -- Database migrations
@@ -184,11 +199,13 @@ end
 
 -- Get active wishlist name
 function ns:GetActiveWishlistName()
+    if not self.charDB then return "Default" end
     return self.charDB.activeWishlist or "Default"
 end
 
 -- Get active wishlist data
 function ns:GetActiveWishlist()
+    if not self.db then return nil end
     local name = self:GetActiveWishlistName()
     return self.db.wishlists[name]
 end
@@ -205,21 +222,25 @@ end
 
 -- Get setting
 function ns:GetSetting(key)
+    if not self.db or not self.db.settings then return nil end
     return self.db.settings[key]
 end
 
 -- Set setting
 function ns:SetSetting(key, value)
+    if not self.db or not self.db.settings then return end
     self.db.settings[key] = value
 end
 
 -- Set character-specific setting
 function ns:SetCharSetting(key, value)
+    if not self.charDB then return end
     self.charDB[key] = value
 end
 
 -- Check if item is collected on this character
 function ns:IsItemCollected(itemID)
+    if not self.charDB or not self.charDB.collected then return false end
     return self.charDB.collected[itemID] == true
 end
 

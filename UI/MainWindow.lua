@@ -6,11 +6,15 @@ local addonName, ns = ...
 -- Cache global functions
 local pairs, ipairs, type, unpack = pairs, ipairs, type, unpack
 local tinsert = table.insert
+local math = math
+local string = string
 local CreateFrame, StaticPopup_Show = CreateFrame, StaticPopup_Show
 local UIDropDownMenu_Initialize, UIDropDownMenu_CreateInfo, UIDropDownMenu_AddButton = UIDropDownMenu_Initialize, UIDropDownMenu_CreateInfo, UIDropDownMenu_AddButton
 local UIDropDownMenu_SetText = UIDropDownMenu_SetText
+local ToggleDropDownMenu = ToggleDropDownMenu
 local CreateDataProvider, CreateScrollBoxListLinearView, ScrollUtil = CreateDataProvider, CreateScrollBoxListLinearView, ScrollUtil
 local EventRegistry = EventRegistry
+local GameTooltip = GameTooltip
 
 local WINDOW_WIDTH = 450
 local WINDOW_HEIGHT = 500
@@ -396,35 +400,104 @@ function ns:RefreshMainWindow()
     frame.scrollBox:SetDataProvider(dataProvider)
 end
 
+-- Define StaticPopupDialogs once at load time (not recreated on each call)
+StaticPopupDialogs["LOOTWISHLIST_NEW_WISHLIST"] = {
+    text = "New Wishlist Name:",
+    button1 = "Create",
+    button2 = "Cancel",
+    hasEditBox = true,
+    OnAccept = function(self)
+        local name = self.EditBox:GetText()
+        if name and name ~= "" then
+            local success, err = ns:CreateWishlist(name)
+            if success then
+                ns:SetActiveWishlist(name)
+                selectedItemID = nil
+                ns:RefreshMainWindow()
+            else
+                print("|cff00ccffLootWishlist|r: " .. (err or "Failed to create wishlist"))
+            end
+        end
+    end,
+    EditBoxOnEnterPressed = function(self)
+        local parent = self:GetParent()
+        StaticPopupDialogs["LOOTWISHLIST_NEW_WISHLIST"].OnAccept(parent)
+        parent:Hide()
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+}
+
+StaticPopupDialogs["LOOTWISHLIST_RENAME_WISHLIST"] = {
+    text = "Rename Wishlist:",
+    button1 = "Rename",
+    button2 = "Cancel",
+    hasEditBox = true,
+    OnShow = function(self)
+        -- Get current name at show time
+        local currentName = ns:GetActiveWishlistName()
+        self.EditBox:SetText(currentName)
+        self.EditBox:HighlightText()
+        self.data = currentName  -- Store for OnAccept
+    end,
+    OnAccept = function(self)
+        local newName = self.EditBox:GetText()
+        local currentName = self.data
+        if newName and newName ~= "" and newName ~= currentName then
+            local success, err = ns:RenameWishlist(currentName, newName)
+            if success then
+                selectedItemID = nil
+                ns:RefreshMainWindow()
+                if ns.ItemBrowser and ns.ItemBrowser:IsShown() then
+                    ns:RefreshBrowser()
+                end
+            else
+                print("|cff00ccffLootWishlist|r: " .. (err or "Failed to rename wishlist"))
+            end
+        end
+    end,
+    EditBoxOnEnterPressed = function(self)
+        local parent = self:GetParent()
+        StaticPopupDialogs["LOOTWISHLIST_RENAME_WISHLIST"].OnAccept(parent)
+        parent:Hide()
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+}
+
+StaticPopupDialogs["LOOTWISHLIST_DELETE_WISHLIST"] = {
+    text = "Delete this wishlist?\n\nThis cannot be undone.",
+    button1 = "Delete",
+    button2 = "Cancel",
+    OnShow = function(self)
+        -- Get current name at show time
+        local currentName = ns:GetActiveWishlistName()
+        self.text:SetFormattedText("Delete wishlist \"%s\"?\n\nThis cannot be undone.", currentName)
+        self.data = currentName  -- Store for OnAccept
+    end,
+    OnAccept = function(self)
+        local currentName = self.data
+        local success, err = ns:DeleteWishlist(currentName)
+        if success then
+            selectedItemID = nil
+            ns:RefreshMainWindow()
+            if ns.ItemBrowser and ns.ItemBrowser:IsShown() then
+                ns:RefreshBrowser()
+            end
+        else
+            print("|cff00ccffLootWishlist|r: " .. (err or "Failed to delete wishlist"))
+        end
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    showAlert = true,
+}
+
 -- Show new wishlist dialog
 function ns:ShowNewWishlistDialog()
-    StaticPopupDialogs["LOOTWISHLIST_NEW_WISHLIST"] = {
-        text = "New Wishlist Name:",
-        button1 = "Create",
-        button2 = "Cancel",
-        hasEditBox = true,
-        OnAccept = function(self)
-            local name = self.EditBox:GetText()
-            if name and name ~= "" then
-                local success, err = ns:CreateWishlist(name)
-                if success then
-                    ns:SetActiveWishlist(name)
-                    selectedItemID = nil
-                    ns:RefreshMainWindow()
-                else
-                    print("|cff00ccffLootWishlist|r: " .. (err or "Failed to create wishlist"))
-                end
-            end
-        end,
-        EditBoxOnEnterPressed = function(self)
-            local parent = self:GetParent()
-            StaticPopupDialogs["LOOTWISHLIST_NEW_WISHLIST"].OnAccept(parent)
-            parent:Hide()
-        end,
-        timeout = 0,
-        whileDead = true,
-        hideOnEscape = true,
-    }
     StaticPopup_Show("LOOTWISHLIST_NEW_WISHLIST")
 end
 
@@ -435,41 +508,6 @@ function ns:ShowRenameWishlistDialog()
         print("|cff00ccffLootWishlist|r: Cannot rename the Default wishlist")
         return
     end
-
-    StaticPopupDialogs["LOOTWISHLIST_RENAME_WISHLIST"] = {
-        text = "Rename Wishlist:",
-        button1 = "Rename",
-        button2 = "Cancel",
-        hasEditBox = true,
-        OnShow = function(self)
-            self.EditBox:SetText(currentName)
-            self.EditBox:HighlightText()
-        end,
-        OnAccept = function(self)
-            local newName = self.EditBox:GetText()
-            if newName and newName ~= "" and newName ~= currentName then
-                local success, err = ns:RenameWishlist(currentName, newName)
-                if success then
-                    selectedItemID = nil
-                    ns:RefreshMainWindow()
-                    -- Refresh browser if open
-                    if ns.ItemBrowser and ns.ItemBrowser:IsShown() then
-                        ns:RefreshBrowser()
-                    end
-                else
-                    print("|cff00ccffLootWishlist|r: " .. (err or "Failed to rename wishlist"))
-                end
-            end
-        end,
-        EditBoxOnEnterPressed = function(self)
-            local parent = self:GetParent()
-            StaticPopupDialogs["LOOTWISHLIST_RENAME_WISHLIST"].OnAccept(parent)
-            parent:Hide()
-        end,
-        timeout = 0,
-        whileDead = true,
-        hideOnEscape = true,
-    }
     StaticPopup_Show("LOOTWISHLIST_RENAME_WISHLIST")
 end
 
@@ -480,29 +518,6 @@ function ns:ShowDeleteWishlistDialog()
         print("|cff00ccffLootWishlist|r: Cannot delete the Default wishlist")
         return
     end
-
-    StaticPopupDialogs["LOOTWISHLIST_DELETE_WISHLIST"] = {
-        text = "Delete wishlist \"" .. currentName .. "\"?\n\nThis cannot be undone.",
-        button1 = "Delete",
-        button2 = "Cancel",
-        OnAccept = function()
-            local success, err = ns:DeleteWishlist(currentName)
-            if success then
-                selectedItemID = nil
-                ns:RefreshMainWindow()
-                -- Refresh browser if open
-                if ns.ItemBrowser and ns.ItemBrowser:IsShown() then
-                    ns:RefreshBrowser()
-                end
-            else
-                print("|cff00ccffLootWishlist|r: " .. (err or "Failed to delete wishlist"))
-            end
-        end,
-        timeout = 0,
-        whileDead = true,
-        hideOnEscape = true,
-        showAlert = true,
-    }
     StaticPopup_Show("LOOTWISHLIST_DELETE_WISHLIST")
 end
 
@@ -524,6 +539,17 @@ function ns:ToggleItemBrowser()
         ns:CreateItemBrowser()
         if ns.MainWindow and ns.MainWindow.browseBtn then
             ns.MainWindow.browseBtn:SetText("Close")
+        end
+    end
+end
+
+-- Cleanup MainWindow resources
+function ns:CleanupMainWindow()
+    if ns.MainWindow then
+        -- Unregister GET_ITEM_INFO_RECEIVED callback
+        if ns.MainWindow.itemInfoHandle then
+            EventRegistry:UnregisterFrameEventAndCallback(ns.MainWindow.itemInfoHandle)
+            ns.MainWindow.itemInfoHandle = nil
         end
     end
 end

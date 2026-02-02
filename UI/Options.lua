@@ -3,6 +3,12 @@
 
 local addonName, ns = ...
 
+-- Cache global functions
+local CreateFrame = CreateFrame
+local Settings = Settings
+local PlaySound = PlaySound
+local LibStub = LibStub
+
 -- Sound options for dropdown
 local SOUND_OPTIONS = {
     {value = 8959, label = "Raid Warning"},

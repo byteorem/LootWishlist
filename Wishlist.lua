@@ -5,14 +5,102 @@ local addonName, ns = ...
 
 -- Cache global functions
 local pairs, ipairs, type, tonumber = pairs, ipairs, type, tonumber
-local tinsert, tremove = table.insert, table.remove
+local tinsert, tremove, wipe = table.insert, table.remove, wipe
 local C_Item, CopyTable = C_Item, CopyTable
 
--- Item cache for async loading
+-- Item cache for async loading with LRU eviction
 ns.itemCache = {}
+local cacheOrder = {}  -- LRU tracking: array of itemIDs in access order (oldest first)
+local MAX_CACHE_SIZE = 500
+
+-- Wishlist lookup index for O(1) item checks
+-- Structure: wishlistIndex[itemID] = {wishlistName1 = true, wishlistName2 = true, ...}
+local wishlistIndex = {}
 
 -- Constants for validation
 local MAX_WISHLIST_NAME_LENGTH = 50
+
+-- LRU cache helpers
+local function TouchCache(itemID)
+    -- Move itemID to end of cacheOrder (most recently used)
+    for i, id in ipairs(cacheOrder) do
+        if id == itemID then
+            tremove(cacheOrder, i)
+            break
+        end
+    end
+    tinsert(cacheOrder, itemID)
+end
+
+local function PruneCache()
+    -- Remove oldest entries until under MAX_CACHE_SIZE
+    while #cacheOrder > MAX_CACHE_SIZE do
+        local oldestID = tremove(cacheOrder, 1)
+        ns.itemCache[oldestID] = nil
+    end
+end
+
+-- Wishlist index helpers for O(1) lookups
+local function RebuildIndex()
+    wipe(wishlistIndex)
+    if not ns.db or not ns.db.wishlists then return end
+
+    for wishlistName, wishlist in pairs(ns.db.wishlists) do
+        if wishlist.items then
+            for _, entry in ipairs(wishlist.items) do
+                if entry.itemID then
+                    if not wishlistIndex[entry.itemID] then
+                        wishlistIndex[entry.itemID] = {}
+                    end
+                    wishlistIndex[entry.itemID][wishlistName] = true
+                end
+            end
+        end
+    end
+end
+
+local function AddToIndex(itemID, wishlistName)
+    if not itemID or not wishlistName then return end
+    if not wishlistIndex[itemID] then
+        wishlistIndex[itemID] = {}
+    end
+    wishlistIndex[itemID][wishlistName] = true
+end
+
+local function RemoveFromIndex(itemID, wishlistName)
+    if not itemID or not wishlistName then return end
+    if wishlistIndex[itemID] then
+        wishlistIndex[itemID][wishlistName] = nil
+        -- Clean up empty entries
+        if not next(wishlistIndex[itemID]) then
+            wishlistIndex[itemID] = nil
+        end
+    end
+end
+
+-- Rebuild index for a single wishlist (used after rename/delete)
+local function RebuildWishlistInIndex(wishlistName)
+    -- Remove old entries for this wishlist
+    for itemID, wishlists in pairs(wishlistIndex) do
+        wishlists[wishlistName] = nil
+        if not next(wishlists) then
+            wishlistIndex[itemID] = nil
+        end
+    end
+
+    -- Add new entries
+    if ns.db and ns.db.wishlists and ns.db.wishlists[wishlistName] then
+        local wishlist = ns.db.wishlists[wishlistName]
+        if wishlist.items then
+            for _, entry in ipairs(wishlist.items) do
+                AddToIndex(entry.itemID, wishlistName)
+            end
+        end
+    end
+end
+
+-- Export RebuildIndex for use after database initialization
+ns.RebuildWishlistIndex = RebuildIndex
 
 -- Validate wishlist name
 local function ValidateWishlistName(name, existingWishlists)
@@ -58,6 +146,14 @@ function ns:DeleteWishlist(name)
         return false, "Wishlist does not exist"
     end
 
+    -- Remove from index before deleting
+    local wishlist = self.db.wishlists[name]
+    if wishlist.items then
+        for _, entry in ipairs(wishlist.items) do
+            RemoveFromIndex(entry.itemID, name)
+        end
+    end
+
     self.db.wishlists[name] = nil
 
     -- Switch to Default if active wishlist was deleted
@@ -89,6 +185,15 @@ function ns:RenameWishlist(oldName, newName)
     self.db.wishlists[newName] = self.db.wishlists[oldName]
     self.db.wishlists[oldName] = nil
 
+    -- Update index: remove old name, add new name
+    local wishlist = self.db.wishlists[newName]
+    if wishlist.items then
+        for _, entry in ipairs(wishlist.items) do
+            RemoveFromIndex(entry.itemID, oldName)
+            AddToIndex(entry.itemID, newName)
+        end
+    end
+
     -- Update active wishlist if it was renamed
     if self:GetActiveWishlistName() == oldName then
         self:SetCharSetting("activeWishlist", newName)
@@ -119,6 +224,14 @@ function ns:DuplicateWishlist(name, newName)
     self.db.wishlists[newName] = {
         items = CopyTable(self.db.wishlists[name].items),
     }
+
+    -- Update index for new wishlist
+    local wishlist = self.db.wishlists[newName]
+    if wishlist.items then
+        for _, entry in ipairs(wishlist.items) do
+            AddToIndex(entry.itemID, newName)
+        end
+    end
 
     return true, newName
 end
@@ -156,6 +269,9 @@ function ns:AddItemToWishlist(itemID, wishlistName, sourceText, upgradeTrack, it
         itemLink = itemLink,
     })
 
+    -- Update index
+    AddToIndex(itemID, wishlistName)
+
     -- Cache item info
     self:CacheItemInfo(itemID)
 
@@ -174,6 +290,19 @@ function ns:RemoveItemFromWishlist(itemID, sourceText, wishlistName)
     for i, entry in ipairs(wishlist.items) do
         if entry.itemID == itemID and entry.sourceText == (sourceText or "") then
             table.remove(wishlist.items, i)
+
+            -- Update index: check if item still exists in this wishlist
+            local stillExists = false
+            for _, e in ipairs(wishlist.items) do
+                if e.itemID == itemID then
+                    stillExists = true
+                    break
+                end
+            end
+            if not stillExists then
+                RemoveFromIndex(itemID, wishlistName)
+            end
+
             return true
         end
     end
@@ -193,27 +322,22 @@ function ns:GetWishlistItems(wishlistName)
     return wishlist.items
 end
 
--- Check if item is on any wishlist
+-- Check if item is on any wishlist (O(1) lookup using index)
 function ns:IsItemOnWishlist(itemID, wishlistName)
-    if wishlistName then
-        local wishlist = self.db.wishlists[wishlistName]
-        if wishlist then
-            for _, entry in ipairs(wishlist.items) do
-                if entry.itemID == itemID then
-                    return true
-                end
-            end
-        end
+    -- Use index for fast lookup
+    local itemWishlists = wishlistIndex[itemID]
+    if not itemWishlists then
         return false
     end
 
-    -- Check all wishlists
-    for name, wishlist in pairs(self.db.wishlists) do
-        for _, entry in ipairs(wishlist.items) do
-            if entry.itemID == itemID then
-                return true, name
-            end
-        end
+    if wishlistName then
+        -- Check specific wishlist
+        return itemWishlists[wishlistName] == true
+    end
+
+    -- Return first wishlist that contains this item
+    for name in pairs(itemWishlists) do
+        return true, name
     end
 
     return false
@@ -240,9 +364,10 @@ function ns:IsItemOnWishlistWithSource(itemID, sourceText, wishlistName, upgrade
     return false
 end
 
--- Cache item info for async loading
+-- Cache item info for async loading (with LRU eviction)
 function ns:CacheItemInfo(itemID)
     if self.itemCache[itemID] then
+        TouchCache(itemID)
         return self.itemCache[itemID]
     end
 
@@ -262,6 +387,8 @@ function ns:CacheItemInfo(itemID)
             classID = classID,
             subclassID = subclassID,
         }
+        TouchCache(itemID)
+        PruneCache()
         return self.itemCache[itemID]
     end
 
@@ -272,7 +399,11 @@ end
 
 -- Get cached item info
 function ns:GetCachedItemInfo(itemID)
-    return self.itemCache[itemID] or self:CacheItemInfo(itemID)
+    if self.itemCache[itemID] then
+        TouchCache(itemID)
+        return self.itemCache[itemID]
+    end
+    return self:CacheItemInfo(itemID)
 end
 
 -- Calculate wishlist progress

@@ -21,6 +21,9 @@ local SafeIsSecretValue = issecretvalue or function() return false end
 -- Active glow frames
 local glowFrames = {}
 
+-- Active glow timers registry (for cleanup)
+local activeGlowTimers = {}
+
 -- Store callback handles for cleanup
 local eventHandles = {}
 
@@ -30,6 +33,11 @@ local pendingLootItems = {}
 -- Throttle for BAG_UPDATE_DELAYED
 local lastBagUpdate = 0
 local BAG_UPDATE_THROTTLE = 0.5  -- seconds
+
+-- Throttle for CHAT_MSG_LOOT (per-item)
+local lastChatLootCheck = {}
+local CHAT_LOOT_THROTTLE = 1.0  -- seconds
+local chatLootCleanupTicker = nil
 
 -- Parse bonus IDs from item link
 -- Format: item:itemID:enchant:gem1:gem2:gem3:gem4:suffixID:uniqueID:level:specID:modifiersMask:itemContext:numBonusIDs:bonusID1:bonusID2:...
@@ -130,8 +138,17 @@ function ns:OnChatMsgLoot(event, msg, ...)
     local itemLink = msg:match("|c%x+|Hitem:(%d+).-|h")
     if itemLink then
         local itemID = tonumber(itemLink)
-        if itemID and self:IsItemOnWishlist(itemID) then
-            self:OnItemLooted(itemID)
+        if itemID then
+            -- Throttle per-item to avoid processing same item multiple times rapidly
+            local now = GetTime()
+            if lastChatLootCheck[itemID] and (now - lastChatLootCheck[itemID]) < CHAT_LOOT_THROTTLE then
+                return
+            end
+            lastChatLootCheck[itemID] = now
+
+            if self:IsItemOnWishlist(itemID) then
+                self:OnItemLooted(itemID)
+            end
         end
     end
 end
@@ -151,10 +168,36 @@ function ns:InitEvents()
         "BAG_UPDATE_DELAYED", self.OnBagUpdateDelayed, self)
     eventHandles.chatMsgLoot = EventRegistry:RegisterFrameEventAndCallback(
         "CHAT_MSG_LOOT", self.OnChatMsgLoot, self)
+
+    -- Periodic cleanup of chat loot throttle entries (every 30 seconds)
+    chatLootCleanupTicker = C_Timer.NewTicker(30, function()
+        local now = GetTime()
+        for itemID, lastTime in pairs(lastChatLootCheck) do
+            if (now - lastTime) > 60 then  -- Remove entries older than 60 seconds
+                lastChatLootCheck[itemID] = nil
+            end
+        end
+    end)
 end
 
 -- Cleanup events (for potential addon unload scenarios)
 function ns:CleanupEvents()
+    -- Cancel all glow timers
+    for slot, timer in pairs(activeGlowTimers) do
+        if timer then
+            pcall(function() timer:Cancel() end)
+        end
+    end
+    wipe(activeGlowTimers)
+
+    -- Cancel chat loot cleanup ticker
+    if chatLootCleanupTicker then
+        chatLootCleanupTicker:Cancel()
+        chatLootCleanupTicker = nil
+    end
+    wipe(lastChatLootCheck)
+
+    -- Unregister event callbacks
     for name, handle in pairs(eventHandles) do
         if handle then
             EventRegistry:UnregisterFrameEventAndCallback(handle)
@@ -243,11 +286,24 @@ end
 
 -- Show glow on loot frame button
 function ns:ShowLootGlow(slot)
-    -- Try to find the loot frame button
+    -- Try to find the loot frame button (classic LootButton style)
     local button = _G["LootButton" .. slot]
 
+    -- Fallback for modern scroll-based loot frame (if classic button doesn't exist)
+    if not button and LootFrame and LootFrame.ScrollBox then
+        -- Modern loot frames use a scroll box with dynamically created buttons
+        local dataProvider = LootFrame.ScrollBox:GetDataProvider()
+        if dataProvider then
+            LootFrame.ScrollBox:ForEachFrame(function(frame)
+                if frame.slotIndex == slot then
+                    button = frame
+                end
+            end)
+        end
+    end
+
     if button and button:IsShown() then
-        if LootFrame.SpellHighlightAnim then
+        if LootFrame and LootFrame.SpellHighlightAnim then
             -- Use built-in highlight if available (with pcall for safety)
             local success = pcall(ActionButton_ShowOverlayGlow, button)
             if success then
@@ -296,11 +352,21 @@ function ns:CreateCustomGlow(button, slot)
 
     PulseGlow()
     glow.pulseTimer = C_Timer.NewTicker(0.5, PulseGlow)
+    -- Register timer for cleanup
+    activeGlowTimers[slot] = glow.pulseTimer
     glowFrames[slot] = button
 end
 
 -- Clear all loot glows
 function ns:ClearLootGlows()
+    -- Cancel all registered timers first
+    for slot, timer in pairs(activeGlowTimers) do
+        if timer then
+            pcall(function() timer:Cancel() end)
+        end
+    end
+    wipe(activeGlowTimers)
+
     for slot, button in pairs(glowFrames) do
         if button then
             pcall(function()
