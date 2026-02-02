@@ -1020,6 +1020,7 @@ function ns:DoRefreshRightPanel()
 
                         lootRow.icon:SetTexture(lootInfo.icon or 134400)
                         lootRow.itemID = itemID
+                        lootRow.itemLink = itemLink
                         lootRow.slotLabel:SetText(itemSlot)
 
                         -- Build source text
@@ -1111,7 +1112,9 @@ function ns:MarkRowAsAvailable(row, sourceText)
     -- Re-enable row click
     row:SetScript("OnClick", function()
         if not ns:IsItemOnWishlistWithSource(row.itemID, sourceText) then
-            local success = ns:AddItemToWishlist(row.itemID, nil, sourceText)
+            local state = GetBrowserState()
+            local track = state.selectedTrack or "hero"
+            local success = ns:AddItemToWishlist(row.itemID, nil, sourceText, track, row.itemLink)
             if success then
                 ns:MarkRowAsAdded(row, row.itemID)
                 ns:RefreshMainWindow()
