@@ -912,19 +912,22 @@ function ns:InitExpansionDropdown(dropdown)
         end
 
         for _, exp in ipairs(GetExpansionTiers()) do
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = exp.name
-            info.checked = (not state.currentSeasonFilter and state.expansion == exp.id)
-            info.func = function()
-                state.currentSeasonFilter = false
-                state.expansion = exp.id
-                UIDropDownMenu_SetText(dropdown, exp.name)
-                state.selectedInstance = nil
-                state.expandedBosses = {}
-                InvalidateCache()
-                ns:RefreshBrowser()
+            -- Skip "Current Season" for dungeons (already added above with M+ pool logic)
+            if not (state.instanceType == "dungeon" and exp.name == "Current Season") then
+                local info = UIDropDownMenu_CreateInfo()
+                info.text = exp.name
+                info.checked = (not state.currentSeasonFilter and state.expansion == exp.id)
+                info.func = function()
+                    state.currentSeasonFilter = false
+                    state.expansion = exp.id
+                    UIDropDownMenu_SetText(dropdown, exp.name)
+                    state.selectedInstance = nil
+                    state.expandedBosses = {}
+                    InvalidateCache()
+                    ns:RefreshBrowser()
+                end
+                UIDropDownMenu_AddButton(info)
             end
-            UIDropDownMenu_AddButton(info)
         end
     end)
 end
