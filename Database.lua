@@ -260,16 +260,18 @@ function ns:GetCollectedItems()
 end
 
 -- Check if item is checked off
-function ns:IsItemChecked(itemID)
-    return self.charDB.checkedItems[itemID] == true
+function ns:IsItemChecked(itemID, sourceText, upgradeTrack)
+    local key = itemID .. "_" .. (sourceText or "") .. "_" .. (upgradeTrack or "")
+    return self.charDB.checkedItems[key] == true
 end
 
 -- Toggle item checked state
-function ns:ToggleItemChecked(itemID)
-    if self.charDB.checkedItems[itemID] then
-        self.charDB.checkedItems[itemID] = nil
+function ns:ToggleItemChecked(itemID, sourceText, upgradeTrack)
+    local key = itemID .. "_" .. (sourceText or "") .. "_" .. (upgradeTrack or "")
+    if self.charDB.checkedItems[key] then
+        self.charDB.checkedItems[key] = nil
     else
-        self.charDB.checkedItems[itemID] = true
+        self.charDB.checkedItems[key] = true
     end
 end
 
@@ -288,7 +290,8 @@ function ns:RemoveCheckedItems()
     -- Remove checked items from wishlist
     local newItems = {}
     for _, entry in ipairs(wishlist.items) do
-        if not checkedItems[entry.itemID] then
+        local key = entry.itemID .. "_" .. (entry.sourceText or "") .. "_" .. (entry.upgradeTrack or "")
+        if not checkedItems[key] then
             table.insert(newItems, entry)
         end
     end

@@ -99,7 +99,7 @@ local function BuildDataProviderData(ns)
                     itemLink = entry.itemLink,
                     isLegacy = (entry.upgradeTrack == nil),
                     isCollected = ns:IsItemCollected(entry.itemID),
-                    isChecked = ns:IsItemChecked(entry.itemID),
+                    isChecked = ns:IsItemChecked(entry.itemID, entry.sourceText, entry.upgradeTrack),
                     isSelected = (selectedItemID == entry.itemID),
                 })
             end
@@ -237,7 +237,7 @@ function ns:CreateMainWindow()
                 if button == "RightButton" then
                     ns:ShowItemContextMenu(elementData)
                 else
-                    ns:ToggleItemChecked(elementData.itemID)
+                    ns:ToggleItemChecked(elementData.itemID, elementData.sourceText, elementData.upgradeTrack)
                 end
                 ns:RefreshMainWindow()
             end)
