@@ -17,6 +17,8 @@ Libs/LibDBIcon-1-0/LibDBIcon-1.0/LibDBIcon-1.0.lua
 Core.lua
 Database.lua
 TrackData.lua
+Data/Compressed.lua
+Data/Loader.lua
 Wishlist.lua
 Events.lua
 UI/Widgets.lua

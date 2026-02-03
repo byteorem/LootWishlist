@@ -9,9 +9,6 @@ local pairs, ipairs, type, math = pairs, ipairs, type, math
 local wipe, tinsert = wipe, table.insert
 local CreateFrame, CreateFramePool = CreateFrame, CreateFramePool
 local C_Timer, C_EncounterJournal, C_Item, C_ChallengeMode = C_Timer, C_EncounterJournal, C_Item, C_ChallengeMode
-local EJ_SelectTier, EJ_SetLootFilter, EJ_ResetLootFilter, EJ_SetDifficulty = EJ_SelectTier, EJ_SetLootFilter, EJ_ResetLootFilter, EJ_SetDifficulty
-local EJ_GetInstanceByIndex, EJ_SelectInstance, EJ_GetEncounterInfoByIndex, EJ_SelectEncounter = EJ_GetInstanceByIndex, EJ_SelectInstance, EJ_GetEncounterInfoByIndex, EJ_SelectEncounter
-local EJ_GetNumTiers, EJ_GetTierInfo = EJ_GetNumTiers, EJ_GetTierInfo
 local UIDropDownMenu_Initialize, UIDropDownMenu_CreateInfo, UIDropDownMenu_AddButton, UIDropDownMenu_SetText = UIDropDownMenu_Initialize, UIDropDownMenu_CreateInfo, UIDropDownMenu_AddButton, UIDropDownMenu_SetText
 local UnitClass = UnitClass
 local GameTooltip = GameTooltip
@@ -60,22 +57,9 @@ local function GetBrowserDimensions()
     return SIZE_PRESETS[sizeID] or SIZE_PRESETS[1]
 end
 
--- Dynamically build expansion tiers from Encounter Journal API
-local EXPANSION_TIERS  -- Cached after first build
-
+-- Get expansion tiers from static data (ns:GetTiers from Data/Loader.lua)
 local function GetExpansionTiers()
-    if EXPANSION_TIERS then return EXPANSION_TIERS end
-
-    EXPANSION_TIERS = {}
-    local numTiers = EJ_GetNumTiers()
-    -- Build newest first (reverse order)
-    for i = numTiers, 1, -1 do
-        local name = EJ_GetTierInfo(i)
-        if name then
-            table.insert(EXPANSION_TIERS, {id = i, name = name})
-        end
-    end
-    return EXPANSION_TIERS
+    return ns:GetTiers()
 end
 
 -- Class data for dropdown
@@ -182,51 +166,10 @@ ns.BrowserCache = {
     searchIndex = {},
 }
 
--- Instance name cache to avoid repeated tier loops
-local instanceNameCache = {}
-
-local function GetCachedInstanceName(instanceID, isRaid, currentSeasonFilter)
-    if instanceNameCache[instanceID] then
-        return instanceNameCache[instanceID]
-    end
-
-    local instanceName = ""
-
-    -- For current season dungeons, search across all tiers
-    if currentSeasonFilter and not isRaid then
-        for tierIdx = 11, 1, -1 do
-            EJ_SelectTier(tierIdx)
-            local idx = 1
-            while true do
-                local instID, instName = EJ_GetInstanceByIndex(idx, false)
-                if not instID then break end
-                if instID == instanceID then
-                    instanceName = instName
-                    break
-                end
-                idx = idx + 1
-            end
-            if instanceName ~= "" then break end
-        end
-    else
-        -- Search current tier
-        local idx = 1
-        while true do
-            local instID, instName = EJ_GetInstanceByIndex(idx, isRaid)
-            if not instID then break end
-            if instID == instanceID then
-                instanceName = instName
-                break
-            end
-            idx = idx + 1
-        end
-    end
-
-    if instanceName ~= "" then
-        instanceNameCache[instanceID] = instanceName
-    end
-
-    return instanceName
+-- Get instance name from static data
+local function GetCachedInstanceName(instanceID)
+    local info = ns:GetInstanceInfo(instanceID)
+    return info and info.name or ""
 end
 
 -- Check if cache is valid for current state
@@ -271,7 +214,7 @@ local function BuildSearchIndexEntry(searchIndex, itemKey, searchable)
     end
 end
 
--- Cache instance data from EJ API with async item loading
+-- Cache instance data using Encounter Journal API for proper class/difficulty filtering
 local function CacheInstanceData(onComplete)
     local state = ns.browserState
     local cache = ns.BrowserCache
@@ -286,148 +229,87 @@ local function CacheInstanceData(onComplete)
     cache.loadingState = "loading"
     local cacheVersion = cache.version
 
-    local isRaid = (state.instanceType == "raid")
-    local instanceName = GetCachedInstanceName(state.selectedInstance, isRaid, state.currentSeasonFilter)
+    local instanceName = GetCachedInstanceName(state.selectedInstance)
 
-    -- CRITICAL: Select instance FIRST, then set difficulty
+    -- Set up EJ API filters before loading items
+    -- Class filter: 0 = all classes, else specific class ID
+    local classID = state.classFilter > 0 and state.classFilter or 0
+    EJ_SetLootFilter(classID, 0)  -- 0 = all specs
+
+    -- Select instance and set difficulty via EJ API
     EJ_SelectInstance(state.selectedInstance)
-
-    -- Set difficulty after instance selection
     if state.selectedDifficultyID then
         EJ_SetDifficulty(state.selectedDifficultyID)
     end
 
-    -- Apply class filter
-    if state.classFilter > 0 then
-        EJ_SetLootFilter(state.classFilter, 0)
-    else
-        EJ_ResetLootFilter()
-    end
+    -- Get encounters from static data (for structure/ordering)
+    local encounters = ns:GetEncountersForInstance(state.selectedInstance)
 
-    -- Collect all boss and loot data
+    -- Collect all items from EJ API
     local bosses = {}
     local searchIndex = {}
-    local itemsToLoad = {}
-    local bossIndex = 1
 
-    while true do
-        local name, description, bossID = EJ_GetEncounterInfoByIndex(bossIndex)
-        if not name then break end
-
-        EJ_SelectEncounter(bossID)
+    for _, encounter in ipairs(encounters) do
+        -- Select encounter in EJ API to get its loot
+        EJ_SelectEncounter(encounter.id)
 
         local lootList = {}
-        local lootIndex = 1
+        local numLoot = EJ_GetNumLoot()
 
-        while true do
-            local lootInfo = C_EncounterJournal.GetLootInfoByIndex(lootIndex)
-            if not lootInfo then break end
+        for lootIndex = 1, numLoot do
+            local info = C_EncounterJournal.GetLootInfoByIndex(lootIndex)
+            if info and info.itemID then
+                -- EJ API returns properly filtered items with correct difficulty links
+                local lootEntry = {
+                    itemID = info.itemID,
+                    name = info.name or "",
+                    icon = info.icon or 134400,
+                    slot = info.slot or "",
+                    filterType = info.filterType,
+                    link = info.link,  -- Has correct bonus IDs for difficulty
+                    bossName = encounter.name,
+                }
+                tinsert(lootList, lootEntry)
 
-            local lootEntry = {
-                itemID = lootInfo.itemID,
-                name = lootInfo.name or "",
-                icon = lootInfo.icon or 134400,
-                slot = lootInfo.slot or "",
-                filterType = lootInfo.filterType,  -- Store enum for filtering
-                link = lootInfo.link,
-                bossName = name,  -- Store for search indexing
-            }
-            tinsert(lootList, lootEntry)
-
-            -- Track items that need async loading
-            if lootInfo.itemID and (not lootInfo.name or lootInfo.name == "") then
-                tinsert(itemsToLoad, {
-                    itemID = lootInfo.itemID,
-                    lootEntry = lootEntry,
-                    bossName = name,
-                })
-            else
-                -- Item already loaded, build search index now
-                local itemKey = lootInfo.itemID .. "_" .. bossID
-                if lootInfo.name and lootInfo.name ~= "" then
-                    BuildSearchIndexEntry(searchIndex, itemKey, lootInfo.name)
+                -- Build search index
+                local itemKey = info.itemID .. "_" .. encounter.id
+                if info.name and info.name ~= "" then
+                    BuildSearchIndexEntry(searchIndex, itemKey, info.name)
                 end
-                BuildSearchIndexEntry(searchIndex, itemKey, name)
+                BuildSearchIndexEntry(searchIndex, itemKey, encounter.name)
             end
-
-            lootIndex = lootIndex + 1
         end
 
-        -- Only include boss if it has loot (respects class filter)
         if #lootList > 0 then
             tinsert(bosses, {
-                bossID = bossID,
-                name = name,
+                bossID = encounter.id,
+                name = encounter.name,
                 loot = lootList,
             })
         end
-
-        bossIndex = bossIndex + 1
     end
 
-    -- Function to finalize cache
-    local function FinalizeCache()
-        -- Race condition check: version changed during async load
-        if cache.version ~= cacheVersion then
-            if onComplete then onComplete(false) end
-            return
-        end
+    -- Reset loot filter when done to not affect other EJ usage
+    EJ_ResetLootFilter()
 
-        -- Store in cache
-        cache.instanceID = state.selectedInstance
-        cache.classFilter = state.classFilter
-        cache.difficultyID = state.selectedDifficultyID
-        cache.expansion = state.expansion
-        cache.currentSeasonFilter = state.currentSeasonFilter
-        cache.instanceName = instanceName
-        cache.bosses = bosses
-        cache.searchIndex = searchIndex
-        cache.loadingState = "ready"
-
-        if onComplete then onComplete(true) end
+    -- Race condition check: version changed during load
+    if cache.version ~= cacheVersion then
+        if onComplete then onComplete(false) end
+        return
     end
 
-    -- If items need async loading, use ContinuableContainer
-    if #itemsToLoad > 0 then
-        local continuableContainer = ContinuableContainer:Create()
+    -- Store in cache
+    cache.instanceID = state.selectedInstance
+    cache.classFilter = state.classFilter
+    cache.difficultyID = state.selectedDifficultyID
+    cache.expansion = state.expansion
+    cache.currentSeasonFilter = state.currentSeasonFilter
+    cache.instanceName = instanceName
+    cache.bosses = bosses
+    cache.searchIndex = searchIndex
+    cache.loadingState = "ready"
 
-        for _, itemData in ipairs(itemsToLoad) do
-            local item = Item:CreateFromItemID(itemData.itemID)
-            continuableContainer:AddContinuable(item)
-        end
-
-        continuableContainer:ContinueOnLoad(function()
-            -- Race condition check before processing results
-            if cache.version ~= cacheVersion then
-                if onComplete then onComplete(false) end
-                return
-            end
-
-            -- Update loot entries with loaded item data and build search index
-            for _, itemData in ipairs(itemsToLoad) do
-                local item = Item:CreateFromItemID(itemData.itemID)
-                local itemName = item:GetItemName()
-                local itemIcon = item:GetItemIcon()
-                local itemLink = item:GetItemLink()
-
-                itemData.lootEntry.name = itemName or "Unknown"
-                itemData.lootEntry.icon = itemIcon or 134400
-                itemData.lootEntry.link = itemLink or itemData.lootEntry.link
-
-                -- Build search index for loaded item
-                local itemKey = itemData.itemID .. "_loaded"
-                if itemName and itemName ~= "" then
-                    BuildSearchIndexEntry(searchIndex, itemKey, itemName)
-                end
-                BuildSearchIndexEntry(searchIndex, itemKey, itemData.bossName)
-            end
-
-            FinalizeCache()
-        end)
-    else
-        -- All items already loaded
-        FinalizeCache()
-    end
+    if onComplete then onComplete(true) end
 end
 
 -------------------------------------------------------------------------------
@@ -666,29 +548,50 @@ local function InvalidateSeasonCache()
     cachedSeasonInstanceIDs = nil
 end
 
--- Get difficulty options for current instance type
-local function GetDifficultyOptions(instanceType)
-    if instanceType == "raid" then
-        return ns.RAID_DIFFICULTIES
-    else
-        return ns.DUNGEON_DIFFICULTIES
-    end
+-- Build difficulty options for current instance from static data
+local function GetDifficultyOptionsForInstance(instanceID)
+    if not instanceID then return {} end
+    return ns:GetDifficultiesForInstance(instanceID)
 end
 
--- Set default difficulty based on instance type
+-- Set default difficulty based on available difficulties for selected instance
 function ns:SetDefaultDifficulty(state)
-    local isRaid = (state.instanceType == "raid")
-    local difficulties = isRaid and ns.RAID_DIFFICULTIES or ns.DUNGEON_DIFFICULTIES
+    if not state.selectedInstance then
+        state.selectedDifficultyIndex = 1
+        state.selectedDifficultyID = nil
+        state.selectedTrack = "hero"
+        return
+    end
 
-    if isRaid then
-        state.selectedDifficultyIndex = 3  -- Heroic
-    else
-        state.selectedDifficultyIndex = 5  -- Mythic+ (6-9)
+    local isRaid = (state.instanceType == "raid")
+    local difficulties = GetDifficultyOptionsForInstance(state.selectedInstance)
+
+    if #difficulties == 0 then
+        state.selectedDifficultyIndex = 1
+        state.selectedDifficultyID = nil
+        state.selectedTrack = "hero"
+        return
+    end
+
+    -- Find a good default: prefer Heroic for raids, Mythic for dungeons
+    local preferredDiffIDs = isRaid and {15, 14, 16, 17} or {23, 2, 1}
+
+    state.selectedDifficultyIndex = 1
+    for _, prefID in ipairs(preferredDiffIDs) do
+        for idx, diff in ipairs(difficulties) do
+            if diff.id == prefID then
+                state.selectedDifficultyIndex = idx
+                break
+            end
+        end
+        if state.selectedDifficultyIndex > 1 then break end
     end
 
     local diff = difficulties[state.selectedDifficultyIndex]
-    state.selectedDifficultyID = diff.id
-    state.selectedTrack = diff.track
+    if diff then
+        state.selectedDifficultyID = diff.id
+        state.selectedTrack = diff.track
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -1048,7 +951,10 @@ function ns:CreateItemBrowser()
     -- Set defaults if not already set
     local state = ns.browserState
     if not state.expansion then
-        state.expansion = GetExpansionTiers()[1].id
+        local tiers = GetExpansionTiers()
+        if tiers[1] then
+            state.expansion = tiers[1].id
+        end
     end
     if state.classFilter == 0 then
         local _, _, playerClassID = UnitClass("player")
@@ -1083,12 +989,12 @@ function ns:InitTypeDropdown(dropdown)
                 local state = ns.browserState
                 state.instanceType = typeInfo.id
                 UIDropDownMenu_SetText(dropdown, typeInfo.name)
-                state.selectedInstance = nil
+                state.selectedInstance = nil  -- Will be auto-selected in RefreshLeftPanel
+                state.selectedDifficultyIndex = nil  -- Reset to let SetDefaultDifficulty pick
                 state.expandedBosses = {}
                 if typeInfo.id == "raid" then
                     state.currentSeasonFilter = false
                 end
-                ns:SetDefaultDifficulty(state)
                 InvalidateCache()
                 ns:RefreshBrowser()
             end
@@ -1114,6 +1020,7 @@ function ns:InitExpansionDropdown(dropdown)
                 state.expansion = nil
                 UIDropDownMenu_SetText(dropdown, "Current Season")
                 state.selectedInstance = nil
+                state.selectedDifficultyIndex = nil
                 state.expandedBosses = {}
                 InvalidateCache()
                 ns:RefreshBrowser()
@@ -1132,6 +1039,7 @@ function ns:InitExpansionDropdown(dropdown)
                     state.expansion = exp.id
                     UIDropDownMenu_SetText(dropdown, exp.name)
                     state.selectedInstance = nil
+                    state.selectedDifficultyIndex = nil
                     state.expandedBosses = {}
                     InvalidateCache()
                     ns:RefreshBrowser()
@@ -1182,7 +1090,16 @@ end
 function ns:InitDifficultyDropdown(dropdown)
     UIDropDownMenu_Initialize(dropdown, function(self, level)
         local state = ns.browserState
-        local difficulties = GetDifficultyOptions(state.instanceType)
+
+        local difficulties = GetDifficultyOptionsForInstance(state.selectedInstance)
+
+        if #difficulties == 0 then
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = "No difficulties"
+            info.disabled = true
+            UIDropDownMenu_AddButton(info)
+            return
+        end
 
         for idx, diff in ipairs(difficulties) do
             local info = UIDropDownMenu_CreateInfo()
@@ -1193,8 +1110,8 @@ function ns:InitDifficultyDropdown(dropdown)
                 state.selectedDifficultyID = diff.id
                 state.selectedTrack = diff.track
                 UIDropDownMenu_SetText(dropdown, diff.name)
-                EJ_SetDifficulty(diff.id)
-                -- Difficulty doesn't change EJ loot list, just display
+                -- Difficulty changes item links (bonus IDs), invalidate cache to reload
+                InvalidateCache()
                 ns:RefreshRightPanel()
             end
             UIDropDownMenu_AddButton(info)
@@ -1242,31 +1159,32 @@ function ns:RefreshBrowser()
         end
     end
 
-    -- Validate and update difficulty dropdown
+    -- Validate and update difficulty dropdown using instance-specific difficulties
     if ns.ItemBrowser.difficultyDropdown then
-        local difficulties = GetDifficultyOptions(state.instanceType)
-        if not state.selectedDifficultyIndex or state.selectedDifficultyIndex > #difficulties then
-            ns:SetDefaultDifficulty(state)
-        end
-        local diff = difficulties[state.selectedDifficultyIndex]
-        if diff then
-            UIDropDownMenu_SetText(ns.ItemBrowser.difficultyDropdown, diff.name)
-            EJ_SetDifficulty(diff.id)
+        local difficulties = GetDifficultyOptionsForInstance(state.selectedInstance)
+
+        if #difficulties == 0 then
+            UIDropDownMenu_SetText(ns.ItemBrowser.difficultyDropdown, "N/A")
+        else
+            if not state.selectedDifficultyIndex or state.selectedDifficultyIndex > #difficulties then
+                ns:SetDefaultDifficulty(state)
+            end
+
+            local diff = difficulties[state.selectedDifficultyIndex]
+            if diff then
+                UIDropDownMenu_SetText(ns.ItemBrowser.difficultyDropdown, diff.name)
+                state.selectedDifficultyID = diff.id
+                state.selectedTrack = diff.track
+            end
         end
     end
 
-    -- Set EJ tier and loot filter
-    if not state.currentSeasonFilter then
-        if not state.expansion then
-            state.expansion = GetExpansionTiers()[1].id
+    -- Set default expansion if not set
+    if not state.currentSeasonFilter and not state.expansion then
+        local tiers = GetExpansionTiers()
+        if tiers[1] then
+            state.expansion = tiers[1].id
         end
-        EJ_SelectTier(state.expansion)
-    end
-
-    if state.classFilter > 0 then
-        EJ_SetLootFilter(state.classFilter, 0)
-    else
-        EJ_ResetLootFilter()
     end
 
     self:RefreshLeftPanel()
@@ -1289,56 +1207,57 @@ function ns:RefreshLeftPanel()
     -- Handle current season filter for dungeons
     if state.currentSeasonFilter and not isRaid then
         local seasonInstanceIDs = GetCurrentSeasonInstanceIDs()
+        local allInstances = ns:GetAllInstances()
 
-        for tierIdx = 11, 1, -1 do
-            EJ_SelectTier(tierIdx)
-            local instanceIndex = 1
+        -- Iterate through season instances
+        for instanceID, _ in pairs(seasonInstanceIDs) do
+            local instData = allInstances[instanceID]
+            if instData then
+                local row = instanceRowPool:Acquire()
 
-            while true do
-                local instanceID, instanceName = EJ_GetInstanceByIndex(instanceIndex, false)
-                if not instanceID then break end
-
-                if seasonInstanceIDs[instanceID] then
-                    local row = instanceRowPool:Acquire()
-
-                    if not row.name then
-                        ns.UI:InitInstanceListRow(row, dims)
-                    end
-
-                    row:SetWidth(scrollChild:GetWidth())
-                    row:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, yOffset)
-                    row.name:SetText(instanceName)
-                    row.instanceID = instanceID
-                    row.instanceName = instanceName
-
-                    if not firstInstance then
-                        firstInstance = instanceID
-                        firstInstanceRow = row
-                    end
-
-                    ns.UI:SetInstanceRowSelected(row, state.selectedInstance == instanceID)
-
-                    row:SetScript("OnClick", function()
-                        state.selectedInstance = instanceID
-                        state.expandedBosses = {}
-                        InvalidateCache()
-                        ns:RefreshBrowser()
-                    end)
-
-                    row:Show()
-                    yOffset = yOffset - dims.instanceRowHeight
+                if not row.name then
+                    ns.UI:InitInstanceListRow(row, dims)
                 end
 
-                instanceIndex = instanceIndex + 1
+                row:SetWidth(scrollChild:GetWidth())
+                row:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, yOffset)
+                row.name:SetText(instData.name)
+                row.instanceID = instanceID
+                row.instanceName = instData.name
+
+                if not firstInstance then
+                    firstInstance = instanceID
+                    firstInstanceRow = row
+                end
+
+                ns.UI:SetInstanceRowSelected(row, state.selectedInstance == instanceID)
+
+                row:SetScript("OnClick", function()
+                    state.selectedInstance = instanceID
+                    state.selectedDifficultyIndex = nil  -- Reset to pick new defaults
+                    state.expandedBosses = {}
+                    InvalidateCache()
+                    ns:RefreshBrowser()
+                end)
+
+                row:Show()
+                yOffset = yOffset - dims.instanceRowHeight
             end
         end
     else
-        local instanceIndex = 1
+        -- Get instances for selected tier from static data
+        local tierID = state.expansion
+        if not tierID then
+            local tiers = GetExpansionTiers()
+            if tiers[1] then
+                tierID = tiers[1].id
+                state.expansion = tierID
+            end
+        end
 
-        while true do
-            local instanceID, instanceName = EJ_GetInstanceByIndex(instanceIndex, isRaid)
-            if not instanceID then break end
+        local instances = ns:GetInstancesForTier(tierID, isRaid)
 
+        for _, inst in ipairs(instances) do
             local row = instanceRowPool:Acquire()
 
             if not row.name then
@@ -1347,19 +1266,20 @@ function ns:RefreshLeftPanel()
 
             row:SetWidth(scrollChild:GetWidth())
             row:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, yOffset)
-            row.name:SetText(instanceName)
-            row.instanceID = instanceID
-            row.instanceName = instanceName
+            row.name:SetText(inst.name)
+            row.instanceID = inst.id
+            row.instanceName = inst.name
 
             if not firstInstance then
-                firstInstance = instanceID
+                firstInstance = inst.id
                 firstInstanceRow = row
             end
 
-            ns.UI:SetInstanceRowSelected(row, state.selectedInstance == instanceID)
+            ns.UI:SetInstanceRowSelected(row, state.selectedInstance == inst.id)
 
             row:SetScript("OnClick", function()
-                state.selectedInstance = instanceID
+                state.selectedInstance = inst.id
+                state.selectedDifficultyIndex = nil  -- Reset to pick new defaults
                 state.expandedBosses = {}
                 InvalidateCache()
                 ns:RefreshBrowser()
@@ -1367,8 +1287,6 @@ function ns:RefreshLeftPanel()
 
             row:Show()
             yOffset = yOffset - dims.instanceRowHeight
-
-            instanceIndex = instanceIndex + 1
         end
     end
 

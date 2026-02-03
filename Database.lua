@@ -31,25 +31,6 @@ ns.TRACK_BADGE = {
     myth = {text = "[Myth]", color = {1.0, 0.5, 0.0}},       -- bright orange
 }
 
--- Raid difficulty options (EJ difficulty IDs)
-ns.RAID_DIFFICULTIES = {
-    {id = 17, name = "LFR", track = "veteran"},
-    {id = 14, name = "Normal", track = "champion"},
-    {id = 15, name = "Heroic", track = "hero"},
-    {id = 16, name = "Mythic", track = "myth"},
-}
-
--- Dungeon difficulty options
--- M+ options are "virtual" - they use EJ difficulty 23 for display but map to different tracks
-ns.DUNGEON_DIFFICULTIES = {
-    {id = 1, name = "Normal", track = "adventurer"},
-    {id = 2, name = "Heroic", track = "champion"},
-    {id = 23, name = "Mythic (M0)", track = "champion"},
-    {id = 23, name = "Mythic+ (1-5)", track = "champion"},
-    {id = 23, name = "Mythic+ (6-9)", track = "hero"},
-    {id = 23, name = "Mythic+ (10+)", track = "myth"},
-}
-
 -- Default database structure
 local DEFAULTS = {
     version = DB_VERSION,
