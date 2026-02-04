@@ -138,6 +138,7 @@ ns.browserState = {
     -- Client-side filters (don't invalidate cache)
     slotFilter = "ALL",
     searchText = "",
+    equipmentOnlyFilter = true,  -- Default to showing only equipment
 
     -- UI state
     expandedBosses = {},
@@ -436,6 +437,17 @@ function ns.BrowserFilter:PassesSlotFilter(filterType, slotFilter)
     return false
 end
 
+-- Check if item is equipment (has valid filterType or slot)
+function ns.BrowserFilter:IsEquipment(filterType, slot)
+    -- Enum.ItemSlotFilterType: 0-13 = equipment, 14 = Other (non-equipment)
+    if filterType ~= nil then
+        -- filterType 14 = Other (mounts, toys, pets, profession items)
+        return filterType ~= Enum.ItemSlotFilterType.Other
+    end
+    -- Fallback for items without filterType - check slot string
+    return slot and slot ~= ""
+end
+
 -- Legacy string-based slot filter (fallback for items without filterType)
 function ns.BrowserFilter:PassesSlotFilterLegacy(itemSlot, slotFilter)
     if slotFilter == "ALL" then
@@ -520,7 +532,13 @@ function ns.BrowserFilter:GetFilteredData()
                 passesSearch = self:PassesSearchFilterLegacy(loot.name, boss.name, state.searchText)
             end
 
-            if passesSlot and passesSearch then
+            -- Equipment filter check
+            local passesEquipment = true
+            if state.equipmentOnlyFilter then
+                passesEquipment = self:IsEquipment(loot.filterType, loot.slot)
+            end
+
+            if passesSlot and passesSearch and passesEquipment then
                 tinsert(filteredLoot, loot)
             end
         end
@@ -831,7 +849,7 @@ function ns:CreateItemBrowser()
     frame.expDropdown = expDropdown
 
     local typeLabel = filterRow1:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    typeLabel:SetPoint("LEFT", expDropdown, "RIGHT", 8, 0)
+    typeLabel:SetPoint("LEFT", expDropdown, "RIGHT", 16, 0)
     typeLabel:SetText("Type:")
 
     local typeDropdown = ns.UI:CreateModernDropdown(filterRow1, dims.typeDropdown)
@@ -839,17 +857,17 @@ function ns:CreateItemBrowser()
     frame.typeDropdown = typeDropdown
 
     local diffLabel = filterRow1:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    diffLabel:SetPoint("LEFT", typeDropdown, "RIGHT", 8, 0)
+    diffLabel:SetPoint("LEFT", typeDropdown, "RIGHT", 16, 0)
     diffLabel:SetText("Diff:")
 
     local difficultyDropdown = ns.UI:CreateModernDropdown(filterRow1, dims.diffDropdown)
     difficultyDropdown:SetPoint("LEFT", diffLabel, "RIGHT", 4, 0)
     frame.difficultyDropdown = difficultyDropdown
 
-    -- Filter row 2: Class, Slot, Search
+    -- Filter row 2: Class, Slot, Search, Equipment checkbox
     local filterRow2 = CreateFrame("Frame", nil, frame)
-    filterRow2:SetPoint("TOPLEFT", filterRow1, "BOTTOMLEFT", 0, -2)
-    filterRow2:SetPoint("TOPRIGHT", filterRow1, "BOTTOMRIGHT", 0, -2)
+    filterRow2:SetPoint("TOPLEFT", filterRow1, "BOTTOMLEFT", 0, -8)
+    filterRow2:SetPoint("TOPRIGHT", filterRow1, "BOTTOMRIGHT", 0, -8)
     filterRow2:SetHeight(25)
 
     local classLabel = filterRow2:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -861,7 +879,7 @@ function ns:CreateItemBrowser()
     frame.classDropdown = classDropdown
 
     local slotLabel = filterRow2:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    slotLabel:SetPoint("LEFT", classDropdown, "RIGHT", 8, 0)
+    slotLabel:SetPoint("LEFT", classDropdown, "RIGHT", 16, 0)
     slotLabel:SetText("Slot:")
 
     local slotDropdown = ns.UI:CreateModernDropdown(filterRow2, dims.slotDropdown)
@@ -869,7 +887,7 @@ function ns:CreateItemBrowser()
     frame.slotDropdown = slotDropdown
 
     local searchBox = ns.UI:CreateSearchBox(filterRow2, dims.searchWidth, 20)
-    searchBox:SetPoint("LEFT", slotDropdown, "RIGHT", 8, 2)
+    searchBox:SetPoint("LEFT", slotDropdown, "RIGHT", 16, 2)
     local searchTimer = nil
     searchBox:HookScript("OnTextChanged", function(self)
         if searchTimer then searchTimer:Cancel() end
@@ -882,9 +900,25 @@ function ns:CreateItemBrowser()
     end)
     frame.searchBox = searchBox
 
+    -- Equipment checkbox (filters non-gear items like mounts, pets, etc.)
+    local equipCheckbox = CreateFrame("CheckButton", nil, filterRow2, "UICheckButtonTemplate")
+    equipCheckbox:SetPoint("LEFT", searchBox, "RIGHT", 12, 0)
+    equipCheckbox:SetSize(24, 24)
+    equipCheckbox:SetChecked(ns.browserState.equipmentOnlyFilter)
+
+    local equipLabel = filterRow2:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    equipLabel:SetPoint("LEFT", equipCheckbox, "RIGHT", 2, 0)
+    equipLabel:SetText("Equipment")
+
+    equipCheckbox:SetScript("OnClick", function(self)
+        ns.browserState.equipmentOnlyFilter = self:GetChecked()
+        ns:RefreshRightPanel()  -- Client-side only, no cache invalidation
+    end)
+    frame.equipCheckbox = equipCheckbox
+
     -- Content frame (holds both panels)
     local contentFrame = CreateFrame("Frame", nil, frame)
-    contentFrame:SetPoint("TOPLEFT", filterRow2, "BOTTOMLEFT", 0, -10)
+    contentFrame:SetPoint("TOPLEFT", filterRow2, "BOTTOMLEFT", 0, -12)
     contentFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -10, 10)
     frame.contentFrame = contentFrame
 
