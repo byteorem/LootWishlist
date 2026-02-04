@@ -5,7 +5,7 @@ local addonName, ns = ...
 
 -- Cache global functions
 local pairs, ipairs, type, tonumber = pairs, ipairs, type, tonumber
-local tinsert, tremove, wipe = table.insert, table.remove, wipe
+local tinsert, wipe = table.insert, wipe
 local C_Item, CopyTable = C_Item, CopyTable
 
 -- Item cache for async loading with LRU eviction
@@ -137,27 +137,6 @@ local function RemoveFromIndex(itemID, wishlistName)
         -- Clean up empty entries
         if not next(wishlistIndex[itemID]) then
             wishlistIndex[itemID] = nil
-        end
-    end
-end
-
--- Rebuild index for a single wishlist (used after rename/delete)
-local function RebuildWishlistInIndex(wishlistName)
-    -- Remove old entries for this wishlist
-    for itemID, wishlists in pairs(wishlistIndex) do
-        wishlists[wishlistName] = nil
-        if not next(wishlists) then
-            wishlistIndex[itemID] = nil
-        end
-    end
-
-    -- Add new entries
-    if ns.db and ns.db.wishlists and ns.db.wishlists[wishlistName] then
-        local wishlist = ns.db.wishlists[wishlistName]
-        if wishlist.items then
-            for _, entry in ipairs(wishlist.items) do
-                AddToIndex(entry.itemID, wishlistName)
-            end
         end
     end
 end
@@ -501,32 +480,6 @@ function ns:GetWishlistProgress(wishlistName)
     return collected, total
 end
 
--- Duplicate an item within the same wishlist
-function ns:DuplicateWishlistItem(itemID, wishlistName)
-    wishlistName = wishlistName or self:GetActiveWishlistName()
-    local wishlist = self.db.wishlists[wishlistName]
-
-    if not wishlist then
-        return false, "Wishlist does not exist"
-    end
-
-    -- Find the item to duplicate
-    for _, entry in ipairs(wishlist.items) do
-        if entry.itemID == itemID then
-            -- Create a copy of the entry
-            table.insert(wishlist.items, {
-                itemID = entry.itemID,
-                sourceText = entry.sourceText,
-                upgradeTrack = entry.upgradeTrack,
-                itemLink = entry.itemLink,
-            })
-            return true
-        end
-    end
-
-    return false, "Item not in wishlist"
-end
-
 -- Update upgrade track for a wishlist item
 function ns:UpdateItemTrack(itemID, sourceText, newTrack, wishlistName)
     wishlistName = wishlistName or self:GetActiveWishlistName()
@@ -544,24 +497,6 @@ function ns:UpdateItemTrack(itemID, sourceText, newTrack, wishlistName)
     end
 
     return false, "Item not in wishlist"
-end
-
--- Get item entry from wishlist (returns the full entry object)
-function ns:GetWishlistItemEntry(itemID, wishlistName)
-    wishlistName = wishlistName or self:GetActiveWishlistName()
-    local wishlist = self.db.wishlists[wishlistName]
-
-    if not wishlist then
-        return nil
-    end
-
-    for _, entry in ipairs(wishlist.items) do
-        if entry.itemID == itemID then
-            return entry
-        end
-    end
-
-    return nil
 end
 
 -- Get item quality color (uses ColorManager API for accessibility/colorblind support)

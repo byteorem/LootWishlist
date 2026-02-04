@@ -12,7 +12,6 @@ local C_Item, C_Timer = C_Item, C_Timer
 local EventRegistry = EventRegistry
 local ActionButton_ShowOverlayGlow, ActionButton_HideOverlayGlow = ActionButton_ShowOverlayGlow, ActionButton_HideOverlayGlow
 local pcall = pcall
-local select = select
 local strsplit = strsplit
 
 -- Safe secret value check (12.0.0+ compatibility)
@@ -186,8 +185,9 @@ function ns:InitEvents()
     eventHandles.chatMsgLoot = EventRegistry:RegisterFrameEventAndCallback(
         "CHAT_MSG_LOOT", self.OnChatMsgLoot, self)
 
-    -- Periodic cleanup of chat loot throttle entries (every 30 seconds)
-    chatLootCleanupTicker = C_Timer.NewTicker(30, function()
+    -- Periodic cleanup of chat loot throttle entries (every 60 seconds)
+    -- Aligned with 60s threshold to ensure entries live exactly 60-120s
+    chatLootCleanupTicker = C_Timer.NewTicker(60, function()
         local now = GetTime()
         for itemID, lastTime in pairs(lastChatLootCheck) do
             if (now - lastTime) > 60 then  -- Remove entries older than 60 seconds

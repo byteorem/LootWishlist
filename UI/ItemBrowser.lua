@@ -79,7 +79,7 @@ local CLASS_DATA = {
     {id = 13, name = "Evoker"},
 }
 
--- Slot data for filtering
+-- Slot data for legacy filter (used by PassesSlotFilterLegacy fallback)
 local SLOT_DATA = {
     {id = "ALL", name = "All Slots"},
     {id = "INVTYPE_HEAD", name = "Head"},
@@ -87,7 +87,7 @@ local SLOT_DATA = {
     {id = "INVTYPE_SHOULDER", name = "Shoulder"},
     {id = "INVTYPE_CLOAK", name = "Back"},
     {id = "INVTYPE_CHEST", name = "Chest"},
-    {id = "INVTYPE_ROBE", name = "Chest"},  -- Robes count as chest
+    {id = "INVTYPE_ROBE", name = "Chest"},
     {id = "INVTYPE_WRIST", name = "Wrist"},
     {id = "INVTYPE_HAND", name = "Hands"},
     {id = "INVTYPE_WAIST", name = "Waist"},
@@ -96,6 +96,31 @@ local SLOT_DATA = {
     {id = "INVTYPE_FINGER", name = "Ring"},
     {id = "INVTYPE_TRINKET", name = "Trinket"},
     {id = "WEAPON", name = "Weapons"},
+}
+
+-- Equipment slot name mapping (explicit, avoids fragile _G lookup)
+local EQUIP_LOC_NAMES = {
+    INVTYPE_HEAD = "Head",
+    INVTYPE_NECK = "Neck",
+    INVTYPE_SHOULDER = "Shoulder",
+    INVTYPE_CLOAK = "Back",
+    INVTYPE_CHEST = "Chest",
+    INVTYPE_ROBE = "Chest",
+    INVTYPE_WRIST = "Wrist",
+    INVTYPE_HAND = "Hands",
+    INVTYPE_WAIST = "Waist",
+    INVTYPE_LEGS = "Legs",
+    INVTYPE_FEET = "Feet",
+    INVTYPE_FINGER = "Ring",
+    INVTYPE_TRINKET = "Trinket",
+    INVTYPE_WEAPONMAINHAND = "Main Hand",
+    INVTYPE_WEAPONOFFHAND = "Off Hand",
+    INVTYPE_WEAPON = "One-Hand",
+    INVTYPE_2HWEAPON = "Two-Hand",
+    INVTYPE_RANGED = "Ranged",
+    INVTYPE_RANGEDRIGHT = "Ranged",
+    INVTYPE_SHIELD = "Off Hand",
+    INVTYPE_HOLDABLE = "Held In Off-hand",
 }
 
 -- Unique slots for dropdown display (no duplicates)
@@ -207,10 +232,9 @@ end
 -- Build search index entry for an item (N-gram prefix tree)
 local function BuildSearchIndexEntry(searchIndex, itemKey, searchable)
     local lowerSearchable = searchable:lower()
-    local prefix = ""
     local maxLen = math.min(#lowerSearchable, 20)
     for i = 1, maxLen do
-        prefix = prefix .. lowerSearchable:sub(i, i)
+        local prefix = lowerSearchable:sub(1, i)  -- O(1) vs O(n^2) concatenation
         if not searchIndex[prefix] then
             searchIndex[prefix] = {}
         end
@@ -271,7 +295,7 @@ local function CacheInstanceData(onComplete)
                 if (not slot or slot == "") and info.itemID then
                     local _, _, _, equipLoc = C_Item.GetItemInfoInstant(info.itemID)
                     if equipLoc and equipLoc ~= "" then
-                        slot = _G[equipLoc] or equipLoc
+                        slot = EQUIP_LOC_NAMES[equipLoc] or equipLoc
                     end
                 end
 
@@ -587,10 +611,6 @@ function ns.BrowserFilter:BuildRightPanelData(filteredData)
 
     return data
 end
-
--------------------------------------------------------------------------------
--- Frame Pools (legacy - kept for reference, no longer used)
--------------------------------------------------------------------------------
 
 -------------------------------------------------------------------------------
 -- Helpers
@@ -1575,24 +1595,6 @@ function ns:MarkRowAsAdded(row, itemID)
     row.name:SetTextColor(0.5, 0.5, 0.5)
     row.addBtn:Hide()
     row:SetScript("OnClick", nil)
-end
-
-function ns:MarkRowAsAvailable(row, sourceText)
-    if not row then return end
-    row.checkmark:Hide()
-    row.name:SetTextColor(1, 1, 1)
-    row.addBtn:Show()
-    row:SetScript("OnClick", function()
-        if not ns:IsItemOnWishlistWithSource(row.itemID, sourceText) then
-            local state = ns.browserState
-            local track = state.selectedTrack or "hero"
-            local success = ns:AddItemToWishlist(row.itemID, nil, sourceText, track, row.itemLink)
-            if success then
-                ns:MarkRowAsAdded(row, row.itemID)
-                ns:RefreshMainWindow()
-            end
-        end
-    end)
 end
 
 function ns:UpdateBrowserRowsForItem(itemID, sourceText)

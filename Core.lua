@@ -4,7 +4,7 @@
 local addonName, ns = ...
 
 -- Cache global functions
-local pairs, ipairs, type, tostring = pairs, ipairs, type, tostring
+local pairs, ipairs, type = pairs, ipairs, type
 local wipe, print = wipe, print
 local CreateFrame, StaticPopup_Show = CreateFrame, StaticPopup_Show
 local ReloadUI = ReloadUI

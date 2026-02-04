@@ -154,3 +154,8 @@ ns.TRACK_DATA = {
         myth = "Myth",
     },
 }
+
+-- Export to namespace for backward compatibility
+-- (Database.lua comment references these being set from TRACK_DATA)
+ns.TRACKS = ns.TRACK_DATA.TRACKS
+ns.TRACK_LABELS = ns.TRACK_DATA.TRACK_LABELS

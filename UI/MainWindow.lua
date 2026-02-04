@@ -16,7 +16,6 @@ local MenuUtil = MenuUtil
 
 local WINDOW_WIDTH = 450
 local WINDOW_HEIGHT = 500
-local GROUP_SPACING = 6
 
 -- Selected item tracking
 local selectedItemID = nil

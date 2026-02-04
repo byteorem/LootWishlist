@@ -22,6 +22,20 @@ ns.State = {
     listeners = {},
 }
 
+-------------------------------------------------------------------------------
+-- Notification Guidelines
+-------------------------------------------------------------------------------
+-- Notify(event, data):
+--   Use for immediate, single-shot notifications where UI must update instantly.
+--   Examples: item collected, wishlist switched, single item removed.
+--
+-- ThrottledNotify(event, data, delay):
+--   Use when rapid successive updates are expected (e.g., bulk operations,
+--   rapid user input). Batches notifications within the delay window (default 0.1s).
+--   Only the last notification in the window fires.
+--   Examples: search text changes, bulk item additions, rapid checkbox toggling.
+-------------------------------------------------------------------------------
+
 -- Subscribe to a state event
 -- Returns a handle that can be used to unsubscribe
 function ns.State:Subscribe(event, callback)
@@ -68,13 +82,4 @@ function ns.State:ThrottledNotify(event, data, delay)
         refreshTimers[event] = nil
         self:Notify(event, data)
     end)
-end
-
--- Cancel a pending throttled notification
-function ns.State:CancelThrottled(event)
-    if refreshTimers[event] then
-        -- C_Timer.After returns a ticker, but we can just nil it
-        -- The timer will fire but listeners table may have changed
-        refreshTimers[event] = nil
-    end
 end

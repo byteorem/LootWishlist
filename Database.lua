@@ -10,17 +10,9 @@ local tinsert, wipe = table.insert, wipe
 -- Database version for migrations
 local DB_VERSION = 5
 
--- Track constants (upgrade tracks for TWW season gear)
-ns.TRACKS = {"explorer", "adventurer", "veteran", "champion", "hero", "myth"}
-
-ns.TRACK_LABELS = {
-    explorer = "Explorer",
-    adventurer = "Adventurer",
-    veteran = "Veteran",
-    champion = "Champion",
-    hero = "Hero",
-    myth = "Myth",
-}
+-- Track constants are defined in TrackData.lua (auto-generated)
+-- Reference them here for backward compatibility after TrackData loads
+-- ns.TRACKS and ns.TRACK_LABELS are set from ns.TRACK_DATA in Core.lua
 
 ns.TRACK_BADGE = {
     explorer = {text = "[Exp]", color = {0.4, 0.8, 0.4}},    -- muted green
