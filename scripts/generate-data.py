@@ -35,6 +35,31 @@ TABLES = [
     "Map",
 ]
 
+# Sort order for difficulty dropdown (matches Encounter Journal)
+DIFFICULTY_ORDER = {
+    # Dungeons: Normal, Heroic, Mythic, Mythic Keystone
+    1: 1,   # Normal
+    2: 2,   # Heroic
+    23: 3,  # Mythic
+    8: 4,   # Mythic Keystone
+
+    # Raids: LFR, Normal, Heroic, Mythic
+    17: 10,  # LFR
+    14: 11,  # Normal
+    15: 12,  # Heroic
+    16: 13,  # Mythic
+
+    # Legacy (order by ID as fallback)
+    3: 20,   # 10 Player
+    4: 21,   # 25 Player
+    5: 22,   # 10 Player (Heroic)
+    6: 23,   # 25 Player (Heroic)
+    7: 24,   # Legacy LFR
+    9: 25,   # 40 Player
+    24: 30,  # Timewalking Dungeon
+    33: 31,  # Timewalking Raid
+}
+
 
 def fetch_csv(table: str) -> list[dict]:
     """Fetch CSV data from wago.tools and parse into list of dicts."""
@@ -315,10 +340,10 @@ def process_instance_difficulties(
             # Older content with explicit difficulty entries
             instance_diffs[str(instance_id)].update(explicit_diffs)
 
-    # Convert sets to sorted lists
+    # Convert sets to sorted lists using custom difficulty order
     result = {}
     for inst_id, diffs in instance_diffs.items():
-        result[inst_id] = sorted(list(diffs))
+        result[inst_id] = sorted(list(diffs), key=lambda d: DIFFICULTY_ORDER.get(d, 100 + d))
 
     return result
 
