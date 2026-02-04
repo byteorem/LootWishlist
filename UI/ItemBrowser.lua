@@ -614,28 +614,18 @@ end
 -- Current raid season instance IDs cache
 local cachedRaidSeasonInstanceIDs = nil
 
--- Get current season raid instance IDs dynamically using Encounter Journal API
+-- Get current season raid instance IDs from static data
 local function GetCurrentSeasonRaidInstanceIDs()
     if cachedRaidSeasonInstanceIDs then
         return cachedRaidSeasonInstanceIDs
     end
 
     local instanceIDs = {}
-
-    -- Get the current tier from the Encounter Journal
-    local currentTier = EJ_GetCurrentTier()
-    if not currentTier then return instanceIDs end
-
-    -- Select the current tier
-    EJ_SelectTier(currentTier)
-
-    -- Iterate through raid instances in this tier
-    local index = 1
-    while true do
-        local instanceID, name = EJ_GetInstanceByIndex(index, true) -- true = raids
-        if not instanceID then break end
-        instanceIDs[instanceID] = true
-        index = index + 1
+    local seasonData = ns:GetCurrentSeasonInstances()
+    if seasonData and seasonData.raids then
+        for _, instID in ipairs(seasonData.raids) do
+            instanceIDs[instID] = true
+        end
     end
 
     cachedRaidSeasonInstanceIDs = instanceIDs
