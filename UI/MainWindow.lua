@@ -124,6 +124,16 @@ function ns:CreateMainWindow()
     local titleBar = ns.UI:CreateTitleBar(frame, "LootWishlist")
     frame.titleBar = titleBar
 
+    -- Close ItemBrowser when MainWindow hides
+    frame:SetScript("OnHide", function()
+        if ns.ItemBrowser and ns.ItemBrowser:IsShown() then
+            ns.ItemBrowser:Hide()
+        end
+        if frame.browseBtn then
+            frame.browseBtn:SetText("Browse")
+        end
+    end)
+
     -- Make draggable
     titleBar:EnableMouse(true)
     titleBar:RegisterForDrag("LeftButton")
