@@ -95,7 +95,19 @@ function ns:InitMinimapIcon()
         end,
         OnTooltipShow = function(tooltip)
             tooltip:AddLine("LootWishlist")
-            tooltip:AddLine("|cffffffffProfile:|r " .. ns:GetActiveWishlistName(), 0, 1, 0)
+            local profileName = ns:GetActiveWishlistName()
+            local collected, total = ns:GetWishlistProgress()
+            if total > 0 then
+                local percent = math.floor((collected / total) * 100)
+                tooltip:AddDoubleLine(
+                    "|cffffffffProfile:|r " .. profileName,
+                    string.format("%d/%d (%d%%)", collected, total, percent),
+                    0, 1, 0,  -- Profile text color (green)
+                    0.8, 0.8, 0.6  -- Progress text color (light gold)
+                )
+            else
+                tooltip:AddLine("|cffffffffProfile:|r " .. profileName .. " (no items)", 0.6, 0.6, 0.6)
+            end
             tooltip:AddLine("|cffffffffLeft-click|r to toggle window", 0.7, 0.7, 0.7)
             tooltip:AddLine("|cffffffffRight-click|r to open options", 0.7, 0.7, 0.7)
         end,

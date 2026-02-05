@@ -124,12 +124,13 @@ function ns:InitEvents()
     eventHandles.chatMsgLoot = EventRegistry:RegisterFrameEventAndCallback(
         "CHAT_MSG_LOOT", self.OnChatMsgLoot, self)
 
-    -- Periodic cleanup of chat loot throttle entries (every 60 seconds)
-    -- Aligned with 60s threshold to ensure entries live exactly 60-120s
-    chatLootCleanupTicker = C_Timer.NewTicker(60, function()
+    -- Periodic cleanup of chat loot throttle entries
+    -- Aligned with threshold to ensure entries live exactly 60-120s
+    local cleanupInterval = ns.Constants.CLEANUP_INTERVAL_SECONDS
+    chatLootCleanupTicker = C_Timer.NewTicker(cleanupInterval, function()
         local now = GetTime()
         for itemID, lastTime in pairs(lastChatLootCheck) do
-            if (now - lastTime) > 60 then  -- Remove entries older than 60 seconds
+            if (now - lastTime) > cleanupInterval then  -- Remove entries older than threshold
                 lastChatLootCheck[itemID] = nil
             end
         end
@@ -216,7 +217,7 @@ function ns:ShowLootAlert(slot, itemID, itemLink, wishlistName)
 
     -- Sound alert
     if self:GetSetting("soundEnabled") then
-        local soundID = self:GetSetting("alertSound") or 8959
+        local soundID = self:GetSetting("alertSound") or ns.Constants.SOUND.RAID_WARNING
         PlaySound(soundID, "Master")
     end
 
@@ -293,7 +294,7 @@ function ns:CreateCustomGlow(button, slot)
     end
 
     PulseGlow()
-    glow.pulseTimer = C_Timer.NewTicker(0.5, PulseGlow)
+    glow.pulseTimer = C_Timer.NewTicker(ns.Constants.GLOW_PULSE_INTERVAL, PulseGlow)
     -- Register timer for cleanup
     activeGlowTimers[slot] = glow.pulseTimer
     glowFrames[slot] = button
@@ -357,7 +358,7 @@ function ns:ShowTestAlert()
 
     -- Sound alert
     if self:GetSetting("soundEnabled") then
-        local soundID = self:GetSetting("alertSound") or 8959
+        local soundID = self:GetSetting("alertSound") or ns.Constants.SOUND.RAID_WARNING
         PlaySound(soundID, "Master")
     end
 

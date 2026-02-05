@@ -79,67 +79,11 @@ local CLASS_DATA = {
     {id = 13, name = "Evoker"},
 }
 
--- Slot data for legacy filter (used by PassesSlotFilterLegacy fallback)
-local SLOT_DATA = {
-    {id = "ALL", name = "All Slots"},
-    {id = "INVTYPE_HEAD", name = "Head"},
-    {id = "INVTYPE_NECK", name = "Neck"},
-    {id = "INVTYPE_SHOULDER", name = "Shoulder"},
-    {id = "INVTYPE_CLOAK", name = "Back"},
-    {id = "INVTYPE_CHEST", name = "Chest"},
-    {id = "INVTYPE_ROBE", name = "Chest"},
-    {id = "INVTYPE_WRIST", name = "Wrist"},
-    {id = "INVTYPE_HAND", name = "Hands"},
-    {id = "INVTYPE_WAIST", name = "Waist"},
-    {id = "INVTYPE_LEGS", name = "Legs"},
-    {id = "INVTYPE_FEET", name = "Feet"},
-    {id = "INVTYPE_FINGER", name = "Ring"},
-    {id = "INVTYPE_TRINKET", name = "Trinket"},
-    {id = "WEAPON", name = "Weapons"},
-}
-
--- Equipment slot name mapping (explicit, avoids fragile _G lookup)
-local EQUIP_LOC_NAMES = {
-    INVTYPE_HEAD = "Head",
-    INVTYPE_NECK = "Neck",
-    INVTYPE_SHOULDER = "Shoulder",
-    INVTYPE_CLOAK = "Back",
-    INVTYPE_CHEST = "Chest",
-    INVTYPE_ROBE = "Chest",
-    INVTYPE_WRIST = "Wrist",
-    INVTYPE_HAND = "Hands",
-    INVTYPE_WAIST = "Waist",
-    INVTYPE_LEGS = "Legs",
-    INVTYPE_FEET = "Feet",
-    INVTYPE_FINGER = "Ring",
-    INVTYPE_TRINKET = "Trinket",
-    INVTYPE_WEAPONMAINHAND = "Main Hand",
-    INVTYPE_WEAPONOFFHAND = "Off Hand",
-    INVTYPE_WEAPON = "One-Hand",
-    INVTYPE_2HWEAPON = "Two-Hand",
-    INVTYPE_RANGED = "Ranged",
-    INVTYPE_RANGEDRIGHT = "Ranged",
-    INVTYPE_SHIELD = "Off Hand",
-    INVTYPE_HOLDABLE = "Held In Off-hand",
-}
-
--- Unique slots for dropdown display (no duplicates)
-local SLOT_DROPDOWN_OPTIONS = {
-    {id = "ALL", name = "All Slots"},
-    {id = "INVTYPE_HEAD", name = "Head"},
-    {id = "INVTYPE_NECK", name = "Neck"},
-    {id = "INVTYPE_SHOULDER", name = "Shoulder"},
-    {id = "INVTYPE_CLOAK", name = "Back"},
-    {id = "INVTYPE_CHEST", name = "Chest"},
-    {id = "INVTYPE_WRIST", name = "Wrist"},
-    {id = "INVTYPE_HAND", name = "Hands"},
-    {id = "INVTYPE_WAIST", name = "Waist"},
-    {id = "INVTYPE_LEGS", name = "Legs"},
-    {id = "INVTYPE_FEET", name = "Feet"},
-    {id = "INVTYPE_FINGER", name = "Ring"},
-    {id = "INVTYPE_TRINKET", name = "Trinket"},
-    {id = "WEAPON", name = "Weapons"},
-}
+-- Slot mappings now come from ns.Constants
+-- Local aliases for convenience
+local function GetSlotData() return ns.Constants.SLOT_DATA end
+local function GetSlotDropdownOptions() return ns.Constants.SLOT_DROPDOWN_OPTIONS end
+local function GetSlotNames() return ns.Constants.SLOT_NAMES end
 
 -------------------------------------------------------------------------------
 -- Browser State (unified on namespace)
@@ -225,7 +169,7 @@ end
 -- Build search index entry for an item (N-gram prefix tree)
 local function BuildSearchIndexEntry(searchIndex, itemKey, searchable)
     local lowerSearchable = searchable:lower()
-    local maxLen = math.min(#lowerSearchable, 20)
+    local maxLen = math.min(#lowerSearchable, ns.Constants.MAX_NGRAM_PREFIX_LENGTH)
     for i = 1, maxLen do
         local prefix = lowerSearchable:sub(1, i)  -- O(1) vs O(n^2) concatenation
         if not searchIndex[prefix] then
@@ -350,14 +294,14 @@ local function CacheInstanceData(onComplete)
                 if (not slot or slot == "") and info.itemID then
                     local _, _, _, equipLoc = C_Item.GetItemInfoInstant(info.itemID)
                     if equipLoc and equipLoc ~= "" then
-                        slot = EQUIP_LOC_NAMES[equipLoc] or ""
+                        slot = GetSlotNames()[equipLoc] or ""
                     end
                 end
 
                 local lootEntry = {
                     itemID = info.itemID,
                     name = info.name or "",
-                    icon = info.icon or 134400,
+                    icon = info.icon or ns.Constants.TEXTURE.QUESTION_MARK,
                     slot = slot or "",
                     filterType = info.filterType,
                     link = info.link,  -- Has correct bonus IDs for difficulty
@@ -447,8 +391,8 @@ local function CacheInstanceData(onComplete)
             end)
         end
 
-        -- Fallback timeout - complete anyway after 2s
-        C_Timer.After(2.0, function()
+        -- Fallback timeout - complete anyway after timeout
+        C_Timer.After(ns.Constants.ASYNC_LOAD_TIMEOUT, function()
             if cache.loadingState == "loading" then
                 cache.loadingState = "ready"
                 if onComplete then onComplete(true) end
@@ -537,8 +481,8 @@ function ns.BrowserFilter:PassesSlotFilterLegacy(itemSlot, slotFilter)
             or itemSlot:find("Held In Off")
     end
 
-    -- Match slot name from SLOT_DATA
-    for _, slotData in ipairs(SLOT_DATA) do
+    -- Match slot name from constants
+    for _, slotData in ipairs(GetSlotData()) do
         if slotData.id == slotFilter then
             return itemSlot == slotData.name
         end
@@ -764,8 +708,7 @@ function ns:SetDefaultDifficulty(state)
 
     -- No saved difficulty or not available, find a good default
     -- Default to Normal for both raids and dungeons
-    -- Normal IDs: 1 (Normal dungeon), 14 (Normal raid)
-    local preferredDiffIDs = {1, 14, 2, 15}  -- Normal dungeon, Normal raid, Heroic dungeon, Heroic raid
+    local preferredDiffIDs = ns.Constants.PREFERRED_DIFFICULTY_IDS
 
     state.selectedDifficultyIndex = 1
     for _, prefID in ipairs(preferredDiffIDs) do
@@ -1384,7 +1327,7 @@ end
 
 function ns:InitSlotDropdown(dropdown)
     dropdown:SetupMenu(function(dropdown, rootDescription)
-        for _, slotInfo in ipairs(SLOT_DROPDOWN_OPTIONS) do
+        for _, slotInfo in ipairs(GetSlotDropdownOptions()) do
             rootDescription:CreateRadio(slotInfo.name,
                 function() return ns.browserState.slotFilter == slotInfo.id end,
                 function()
@@ -1469,7 +1412,7 @@ function ns:RefreshBrowser()
 
     if frame.slotDropdown then
         local slotName = "All Slots"
-        for _, slotInfo in ipairs(SLOT_DROPDOWN_OPTIONS) do
+        for _, slotInfo in ipairs(GetSlotDropdownOptions()) do
             if slotInfo.id == state.slotFilter then
                 slotName = slotInfo.name
                 break

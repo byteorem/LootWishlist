@@ -367,7 +367,7 @@ function ns.UI:SetupItemRow(row, data, width, itemInfo)
         row.slot:SetText(slotName)
         row.slot:Show()
     else
-        row.icon:SetTexture(134400) -- Question mark
+        row.icon:SetTexture(ns.Constants.TEXTURE.QUESTION_MARK)
         row.name:SetText("Loading...")
         row.name:SetTextColor(0.5, 0.5, 0.5)
     end

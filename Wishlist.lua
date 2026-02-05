@@ -437,7 +437,7 @@ function ns:CacheItemInfo(itemID)
             quality = quality or 1,
             iLevel = iLevel or 0,
             equipSlot = equipSlot or "",
-            texture = texture or 134400, -- Question mark icon
+            texture = texture or ns.Constants.TEXTURE.QUESTION_MARK, -- Question mark icon
             classID = classID,
             subclassID = subclassID,
         }
@@ -502,29 +502,6 @@ end
 
 -- Get slot name from inventory type
 function ns:GetSlotName(equipSlot)
-    local slotNames = {
-        INVTYPE_HEAD = "Head",
-        INVTYPE_NECK = "Neck",
-        INVTYPE_SHOULDER = "Shoulder",
-        INVTYPE_CLOAK = "Back",
-        INVTYPE_CHEST = "Chest",
-        INVTYPE_ROBE = "Chest",
-        INVTYPE_WRIST = "Wrist",
-        INVTYPE_HAND = "Hands",
-        INVTYPE_WAIST = "Waist",
-        INVTYPE_LEGS = "Legs",
-        INVTYPE_FEET = "Feet",
-        INVTYPE_FINGER = "Finger",
-        INVTYPE_TRINKET = "Trinket",
-        INVTYPE_WEAPON = "One-Hand",
-        INVTYPE_SHIELD = "Off Hand",
-        INVTYPE_2HWEAPON = "Two-Hand",
-        INVTYPE_WEAPONMAINHAND = "Main Hand",
-        INVTYPE_WEAPONOFFHAND = "Off Hand",
-        INVTYPE_HOLDABLE = "Off Hand",
-        INVTYPE_RANGED = "Ranged",
-        INVTYPE_RANGEDRIGHT = "Ranged",
-    }
-    return slotNames[equipSlot] or ""
+    return ns.Constants.SLOT_NAMES[equipSlot] or ""
 end
 

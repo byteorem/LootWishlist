@@ -256,6 +256,35 @@ function ns:CreateMainWindow()
     frame.scrollBar = scrollBar
     frame.scrollView = view
 
+    -- Empty state indicator (shown when wishlist is empty)
+    local emptyState = CreateFrame("Frame", nil, frame)
+    emptyState:SetPoint("TOPLEFT", tableHeader, "BOTTOMLEFT", 0, -40)
+    emptyState:SetPoint("RIGHT", frame, "RIGHT", -30, 0)
+    emptyState:SetHeight(120)
+    emptyState:Hide()
+
+    -- Desaturated bag icon
+    local emptyIcon = emptyState:CreateTexture(nil, "ARTWORK")
+    emptyIcon:SetSize(48, 48)
+    emptyIcon:SetPoint("TOP", 0, 0)
+    emptyIcon:SetTexture("Interface\\Icons\\INV_Misc_Bag_07")
+    emptyIcon:SetDesaturated(true)
+    emptyIcon:SetAlpha(0.5)
+
+    -- Empty state text
+    local emptyText = emptyState:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    emptyText:SetPoint("TOP", emptyIcon, "BOTTOM", 0, -10)
+    emptyText:SetText("Your wishlist is empty")
+    emptyText:SetTextColor(0.6, 0.6, 0.6)
+
+    -- Hint text
+    local emptyHint = emptyState:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    emptyHint:SetPoint("TOP", emptyText, "BOTTOM", 0, -6)
+    emptyHint:SetText("Click |cff00ff00Browse|r to add items")
+    emptyHint:SetTextColor(0.5, 0.5, 0.5)
+
+    frame.emptyState = emptyState
+
     -- Bottom buttons (left side)
     local renameBtn = ns.UI:CreateButton(frame, "Rename", 60, 24)
     renameBtn:SetPoint("BOTTOMLEFT", 10, 12)
@@ -298,13 +327,22 @@ function ns:CreateMainWindow()
     ns.MainWindow = frame
 
     -- Register for item info callbacks using EventRegistry
+    -- Use batching to prevent UI flicker from multiple rapid refreshes
+    local pendingRefresh = false
     frame.itemInfoHandle = EventRegistry:RegisterFrameEventAndCallback(
         "GET_ITEM_INFO_RECEIVED",
         function(event, itemID)
             -- Refresh if we were waiting for this item
             if ns.itemCache[itemID] == nil then
                 ns:CacheItemInfo(itemID)
-                ns:RefreshMainWindow()
+                -- Batch refreshes within a short window to prevent flicker
+                if not pendingRefresh then
+                    pendingRefresh = true
+                    C_Timer.After(ns.Constants.ITEM_REFRESH_BATCH_DELAY, function()
+                        pendingRefresh = false
+                        ns:RefreshMainWindow()
+                    end)
+                end
             end
         end,
         frame
@@ -406,6 +444,19 @@ function ns:RefreshMainWindow()
 
     -- Set the DataProvider on the ScrollBox
     frame.scrollBox:SetDataProvider(dataProvider)
+
+    -- Show/hide empty state based on item count
+    local items = self:GetWishlistItems()
+    local isEmpty = not items or #items == 0
+    if frame.emptyState then
+        frame.emptyState:SetShown(isEmpty)
+    end
+    if frame.scrollBox then
+        frame.scrollBox:SetShown(not isEmpty)
+    end
+    if frame.scrollBar then
+        frame.scrollBar:SetShown(not isEmpty)
+    end
 end
 
 -- Define StaticPopupDialogs once at load time (not recreated on each call)

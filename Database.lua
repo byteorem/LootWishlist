@@ -11,6 +11,7 @@ local tinsert, wipe = table.insert, wipe
 local DB_VERSION = 6
 
 -- Default database structure
+-- Note: Constants.lua must be loaded before Database.lua
 local DEFAULTS = {
     version = DB_VERSION,
     wishlists = {
@@ -22,8 +23,8 @@ local DEFAULTS = {
         soundEnabled = true,
         glowEnabled = true,
         chatAlertEnabled = true,
-        alertSound = 8959, -- SOUNDKIT.RAID_WARNING
-        browserSize = 1, -- 1 = Normal, 2 = Large
+        alertSound = 8959, -- ns.Constants.SOUND.RAID_WARNING (hardcoded here since DEFAULTS is evaluated at load time)
+        browserSize = 1, -- ns.Constants.BROWSER_SIZE_NORMAL
         collapsedGroups = {},  -- Persist collapse state
         minimapIcon = {
             hide = false,
