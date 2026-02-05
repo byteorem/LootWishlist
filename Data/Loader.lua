@@ -19,7 +19,6 @@ local DUNGEON_DIFFICULTIES = {
     {id = 1, name = "Normal", type = "dungeon"},
     {id = 2, name = "Heroic", type = "dungeon"},
     {id = 23, name = "Mythic", type = "dungeon"},
-    {id = 8, name = "Mythic Keystone", type = "dungeon"},
 }
 
 local RAID_DIFFICULTIES = {
