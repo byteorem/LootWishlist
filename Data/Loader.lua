@@ -74,11 +74,8 @@ function ns:GetInstancesForTier(tierID, isRaid)
     -- Check cache
     local cacheKey = isRaid and "raid" or "dungeon"
     if ns.Data._tierInstances[tierID] and ns.Data._tierInstances[tierID][cacheKey] then
-        print("|cffff9900[LW Debug]|r GetInstancesForTier CACHE HIT for tierID:", tierID, "isRaid:", isRaid)
         return ns.Data._tierInstances[tierID][cacheKey]
     end
-
-    print("|cffff9900[LW Debug]|r GetInstancesForTier CACHE MISS for tierID:", tierID, "isRaid:", isRaid, "- querying EJ API")
 
     local instances = {}
 
@@ -111,8 +108,6 @@ function ns:GetInstancesForTier(tierID, isRaid)
 
         index = index + 1
     end
-
-    print("|cffff9900[LW Debug]|r GetInstancesForTier found", #instances, "instances for tierID:", tierID, "isRaid:", isRaid)
 
     -- Sort by order (ascending)
     table.sort(instances, function(a, b) return a.order < b.order end)
@@ -225,11 +220,8 @@ end
 function ns:GetEncountersForInstance(instanceID, skipSelect)
     -- Check cache
     if ns.Data._instanceEncounters[instanceID] then
-        print("|cffff9900[LW Debug]|r GetEncountersForInstance CACHE HIT for instanceID:", instanceID, "- returning", #ns.Data._instanceEncounters[instanceID], "cached encounters")
         return ns.Data._instanceEncounters[instanceID]
     end
-
-    print("|cffff9900[LW Debug]|r GetEncountersForInstance CACHE MISS for instanceID:", instanceID, "- querying EJ API")
 
     local encounters = {}
 
@@ -251,8 +243,6 @@ function ns:GetEncountersForInstance(instanceID, skipSelect)
 
         index = index + 1
     end
-
-    print("|cffff9900[LW Debug]|r GetEncountersForInstance found", #encounters, "encounters from EJ API for instanceID:", instanceID)
 
     -- NOTE: We no longer restore previous EJ state - this was causing desync issues
     -- when the Adventure Journal had corrupted our EJ state. Callers that need
@@ -310,11 +300,10 @@ function ns:GetCurrentSeasonInstances()
 end
 
 -------------------------------------------------------------------------------
--- Cache Invalidation (for testing/debug)
+-- Cache Invalidation
 -------------------------------------------------------------------------------
 
 function ns:InvalidateDataCache()
-    print("|cff00ff00[LW Debug]|r InvalidateDataCache called - clearing all ns.Data caches")
     ns.Data._tiers = nil
     ns.Data._tierInstances = {}
     ns.Data._instanceInfo = {}
