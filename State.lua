@@ -8,10 +8,8 @@ local addonName, ns = ...
 -------------------------------------------------------------------------------
 
 ns.StateEvents = {
-    WISHLIST_CHANGED = "WISHLIST_CHANGED",     -- Wishlist created/renamed/deleted
     ITEMS_CHANGED = "ITEMS_CHANGED",           -- Item added/removed from wishlist
     ITEM_COLLECTED = "ITEM_COLLECTED",         -- Item marked as collected
-    BROWSER_STATE_CHANGED = "BROWSER_STATE_CHANGED", -- Browser filter/selection changed
 }
 
 -------------------------------------------------------------------------------
@@ -21,20 +19,6 @@ ns.StateEvents = {
 ns.State = {
     listeners = {},
 }
-
--------------------------------------------------------------------------------
--- Notification Guidelines
--------------------------------------------------------------------------------
--- Notify(event, data):
---   Use for immediate, single-shot notifications where UI must update instantly.
---   Examples: item collected, wishlist switched, single item removed.
---
--- ThrottledNotify(event, data, delay):
---   Use when rapid successive updates are expected (e.g., bulk operations,
---   rapid user input). Batches notifications within the delay window (default 0.1s).
---   Only the last notification in the window fires.
---   Examples: search text changes, bulk item additions, rapid checkbox toggling.
--------------------------------------------------------------------------------
 
 -- Subscribe to a state event
 -- Returns a handle that can be used to unsubscribe
@@ -61,25 +45,9 @@ function ns.State:Notify(event, data)
 
     for _, callback in pairs(self.listeners[event]) do
         -- Protected call to prevent one bad listener from breaking others
-        pcall(callback, data)
+        local ok, err = pcall(callback, data)
+        if not ok and ns.debug then
+            print("|cffff0000[LootWishlist] State callback error:|r " .. tostring(err))
+        end
     end
-end
-
--------------------------------------------------------------------------------
--- Throttled Notifications (Phase 3.2)
--------------------------------------------------------------------------------
-
-local refreshTimers = {}
-
--- Notify with throttling to batch rapid updates
-function ns.State:ThrottledNotify(event, data, delay)
-    delay = delay or 0.1
-
-    -- If timer already pending for this event, skip (will use existing timer)
-    if refreshTimers[event] then return end
-
-    refreshTimers[event] = C_Timer.After(delay, function()
-        refreshTimers[event] = nil
-        self:Notify(event, data)
-    end)
 end

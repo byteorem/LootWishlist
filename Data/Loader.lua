@@ -8,7 +8,6 @@ ns.Data = {
     _tiers = nil,                -- Lazy: [{id, name, order}]
     _tierInstances = {},         -- Lazy: [tierID][isRaid] = [{id, name, order}]
     _instanceInfo = {},          -- Lazy: [instanceID] = {id, name, tierID, isRaid, order}
-    _instanceEncounters = {},    -- Lazy: [instanceID] = [{id, name, order}]
     _currentSeasonInstances = nil, -- Lazy: {raids=[], dungeons=[]}
 }
 
@@ -210,52 +209,6 @@ function ns:GetDifficultiesForInstance(instanceID)
     return isRaid and RAID_DIFFICULTIES or DUNGEON_DIFFICULTIES
 end
 
--- Get all difficulties (for reference)
-function ns:GetAllDifficulties()
-    return ALL_DIFFICULTIES
-end
-
--- Get encounters for an instance
--- @param skipSelect: if true, assumes instance is already selected in EJ API (for batch operations)
-function ns:GetEncountersForInstance(instanceID, skipSelect)
-    -- Check cache
-    if ns.Data._instanceEncounters[instanceID] then
-        return ns.Data._instanceEncounters[instanceID]
-    end
-
-    local encounters = {}
-
-    -- Only select instance if not already selected (caller may have done this)
-    if not skipSelect then
-        EJ_SelectInstance(instanceID)
-    end
-
-    local index = 1
-    while true do
-        local encounterName, _, encounterID = EJ_GetEncounterInfoByIndex(index)
-        if not encounterID then break end
-
-        table.insert(encounters, {
-            id = encounterID,
-            name = encounterName,
-            order = index,
-        })
-
-        index = index + 1
-    end
-
-    -- NOTE: We no longer restore previous EJ state - this was causing desync issues
-    -- when the Adventure Journal had corrupted our EJ state. Callers that need
-    -- specific EJ state should set it themselves.
-
-    -- Sort by order (ascending) - should already be in order
-    table.sort(encounters, function(a, b) return a.order < b.order end)
-
-    -- Cache results
-    ns.Data._instanceEncounters[instanceID] = encounters
-    return encounters
-end
-
 -- Get current season instance IDs
 function ns:GetCurrentSeasonInstances()
     if ns.Data._currentSeasonInstances then
@@ -307,6 +260,5 @@ function ns:InvalidateDataCache()
     ns.Data._tiers = nil
     ns.Data._tierInstances = {}
     ns.Data._instanceInfo = {}
-    ns.Data._instanceEncounters = {}
     ns.Data._currentSeasonInstances = nil
 end

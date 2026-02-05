@@ -4,7 +4,6 @@
 local addonName, ns = ...
 
 -- Cache global functions
-local pairs, ipairs, type = pairs, ipairs, type
 local wipe, print = wipe, print
 local CreateFrame, StaticPopup_Show = CreateFrame, StaticPopup_Show
 local ReloadUI = ReloadUI
@@ -12,13 +11,6 @@ local EventRegistry = EventRegistry
 
 -- Addon namespace
 LootWishlist = ns
-ns.addonName = addonName
-
--- Version info
-ns.version = "1.0.0"
-
--- Store callback handles for cleanup (consistent with Events.lua pattern)
-local coreEventHandles = {}
 
 -- Event frame (still needed for ADDON_LOADED which fires before EventRegistry is fully ready)
 local frame = CreateFrame("Frame")
@@ -29,12 +21,12 @@ frame:SetScript("OnEvent", function(self, event, arg1)
         ns:InitializeDatabase()
         self:UnregisterEvent("ADDON_LOADED")
 
-        -- Register remaining events using EventRegistry (consistent with Events.lua)
-        coreEventHandles.playerLogin = EventRegistry:RegisterFrameEventAndCallback(
+        -- Register remaining events using EventRegistry
+        EventRegistry:RegisterFrameEventAndCallback(
             "PLAYER_LOGIN", ns.OnPlayerLogin, ns)
-        coreEventHandles.playerLogout = EventRegistry:RegisterFrameEventAndCallback(
+        EventRegistry:RegisterFrameEventAndCallback(
             "PLAYER_LOGOUT", ns.OnPlayerLogout, ns)
-        coreEventHandles.playerEnteringWorld = EventRegistry:RegisterFrameEventAndCallback(
+        EventRegistry:RegisterFrameEventAndCallback(
             "PLAYER_ENTERING_WORLD", ns.OnPlayerEnteringWorld, ns)
     end
 end)
@@ -62,17 +54,13 @@ end
 -- Called after player login
 function ns:OnPlayerLogin()
     -- Initialize subsystems
-    if ns.InitEvents then
-        ns:InitEvents()
-    end
+    ns:InitEvents()
 
     -- Initialize minimap icon
     ns:InitMinimapIcon()
 
     -- Initialize options panel
-    if ns.InitOptionsPanel then
-        ns:InitOptionsPanel()
-    end
+    ns:InitOptionsPanel()
 
     -- Print load message
     print("|cff00ccffLootWishlist|r loaded. Type |cff00ff00/lw|r for options.")

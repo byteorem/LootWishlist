@@ -12,10 +12,6 @@ local C_Item, C_Timer = C_Item, C_Timer
 local EventRegistry = EventRegistry
 local ActionButton_ShowOverlayGlow, ActionButton_HideOverlayGlow = ActionButton_ShowOverlayGlow, ActionButton_HideOverlayGlow
 local pcall = pcall
-local strsplit = strsplit
-
--- Safe secret value check (12.0.0+ compatibility)
-local SafeIsSecretValue = issecurevariable or function() return false end
 
 -- Active glow frames
 local glowFrames = {}
@@ -191,8 +187,8 @@ function ns:CheckLootSlot(slot)
     local lootLink = GetLootSlotLink(slot)
     if not lootLink then return end
 
-    -- Skip secret values (12.0.0+)
-    if SafeIsSecretValue(lootName) or SafeIsSecretValue(lootLink) then
+    -- Skip secret values (12.0.0+ SecretValue userdata)
+    if type(lootName) == "userdata" or type(lootLink) == "userdata" then
         return
     end
 

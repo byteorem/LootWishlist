@@ -45,32 +45,26 @@ read_globals = {
     "C_Timer",
     "C_EncounterJournal",
     "C_ChallengeMode",
-    "C_EncodingUtil",
 
     -- Encounter Journal
-    "EJ_SelectTier", "EJ_SetLootFilter", "EJ_ResetLootFilter",
-    "EJ_SetDifficulty", "EJ_GetDifficulty", "EJ_GetInstanceByIndex", "EJ_SelectInstance",
+    "EJ_SelectTier", "EJ_SetLootFilter",
+    "EJ_SetDifficulty", "EJ_GetInstanceByIndex", "EJ_SelectInstance",
     "EJ_GetEncounterInfoByIndex", "EJ_SelectEncounter", "EJ_GetNumLoot",
-    "EJ_GetNumTiers", "EJ_GetTierInfo", "EJ_GetCurrentTier",
-    "EJ_GetCurrentInstance", "EJ_GetInstanceInfo",
+    "EJ_GetNumTiers", "EJ_GetTierInfo",
+    "EJ_GetInstanceInfo",
 
     -- Enums
     "Enum",
 
     -- Frame Creation
-    "CreateFrame", "CreateFramePool", "CreateColor",
+    "CreateFrame", "CreateColor",
     "CreateDataProvider", "CreateScrollBoxListLinearView",
 
     -- Item Loading (async)
-    "Item", "ContinuableContainer",
+    "Item",
 
     -- UI Parents/Objects
     "UIParent", "GameTooltip", "LootFrame",
-
-    -- Dropdown Functions
-    "UIDropDownMenu_Initialize", "UIDropDownMenu_CreateInfo",
-    "UIDropDownMenu_AddButton", "UIDropDownMenu_SetText",
-    "UIDropDownMenu_SetWidth", "ToggleDropDownMenu",
 
     -- Loot Functions
     "GetNumLootItems", "GetLootSlotType", "GetLootSlotInfo", "GetLootSlotLink",
@@ -94,13 +88,6 @@ read_globals = {
     -- Color Manager (11.1.5+)
     "ColorManager",
 
-    -- Fonts
-    "GameFontNormal", "GameFontNormalSmall", "GameFontNormalLarge",
-    "GameFontHighlight", "GameFontHighlightSmall",
-
     -- Lua Extensions (WoW)
-    "wipe", "strsplit",
-
-    -- 12.0+ compatibility
-    "issecurevariable",
+    "wipe",
 }

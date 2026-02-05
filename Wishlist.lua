@@ -4,9 +4,9 @@
 local addonName, ns = ...
 
 -- Cache global functions
-local pairs, ipairs, type, tonumber = pairs, ipairs, type, tonumber
-local tinsert, wipe = table.insert, wipe
-local C_Item, CopyTable = C_Item, CopyTable
+local pairs, ipairs, type = pairs, ipairs, type
+local wipe = wipe
+local C_Item = C_Item
 
 -- Item cache for async loading with LRU eviction
 ns.itemCache = {}
@@ -242,40 +242,6 @@ function ns:RenameWishlist(oldName, newName)
     end
 
     return true
-end
-
--- Duplicate a wishlist
-function ns:DuplicateWishlist(name, newName)
-    if not self.db.wishlists[name] then
-        return false, "Wishlist does not exist"
-    end
-
-    if not newName or newName == "" then
-        newName = name .. " Copy"
-    end
-
-    -- Ensure unique name
-    local baseName = newName
-    local counter = 1
-    while self.db.wishlists[newName] do
-        counter = counter + 1
-        newName = baseName .. " " .. counter
-    end
-
-    -- Deep copy the wishlist
-    self.db.wishlists[newName] = {
-        items = CopyTable(self.db.wishlists[name].items),
-    }
-
-    -- Update index for new wishlist
-    local wishlist = self.db.wishlists[newName]
-    if wishlist.items then
-        for _, entry in ipairs(wishlist.items) do
-            AddToIndex(entry.itemID, newName)
-        end
-    end
-
-    return true, newName
 end
 
 -- Set active wishlist

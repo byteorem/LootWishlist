@@ -133,7 +133,7 @@ local function CreateOptionsPanel()
                 if ns.ItemBrowser then
                     ns.ItemBrowser:Hide()
                     ns.ItemBrowser = nil
-                    ns:ClearBrowserRowPools()
+
                     if ns.MainWindow and ns.MainWindow.browseBtn then
                         ns.MainWindow.browseBtn:SetText("Browse")
                     end
@@ -147,7 +147,7 @@ local function CreateOptionsPanel()
                 if ns.ItemBrowser then
                     ns.ItemBrowser:Hide()
                     ns.ItemBrowser = nil
-                    ns:ClearBrowserRowPools()
+
                     if ns.MainWindow and ns.MainWindow.browseBtn then
                         ns.MainWindow.browseBtn:SetText("Browse")
                     end

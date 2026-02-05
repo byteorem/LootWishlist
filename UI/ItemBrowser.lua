@@ -5,7 +5,7 @@
 local addonName, ns = ...
 
 -- Cache global functions
-local pairs, ipairs, type, math = pairs, ipairs, type, math
+local pairs, ipairs, math = pairs, ipairs, math
 local wipe, tinsert = wipe, table.insert
 local CreateFrame = CreateFrame
 local C_Timer, C_EncounterJournal, C_Item, C_ChallengeMode = C_Timer, C_EncounterJournal, C_Item, C_ChallengeMode
@@ -107,9 +107,6 @@ ns.browserState = {
     slotFilter = "ALL",
     searchText = "",
     equipmentOnlyFilter = true,  -- Default to showing only equipment
-
-    -- UI state
-    expandedBosses = {},
 }
 
 -------------------------------------------------------------------------------
@@ -245,18 +242,23 @@ local function CacheInstanceData(onComplete)
         EncounterJournal.encounterID = nil
     end
 
-    -- Step 3: Select our target instance
+    -- Step 3: Pre-set difficulty for context (handles raid→dungeon transitions)
+    if state.selectedDifficultyID then
+        EJ_SetDifficulty(state.selectedDifficultyID)
+    end
+
+    -- Step 4: Select our target instance
     EJ_SelectInstance(state.selectedInstance)
 
     -- Get instance info for later use
     local ejName = EJ_GetInstanceInfo()
 
-    -- Step 4: Set difficulty (must be after instance selection)
+    -- Step 5: Re-apply difficulty after instance selection
     if state.selectedDifficultyID then
         EJ_SetDifficulty(state.selectedDifficultyID)
     end
 
-    -- Step 4: Set class filter AFTER selecting instance (EJ API requirement)
+    -- Step 6: Set class filter AFTER selecting instance (EJ API requirement)
     -- 0 = all classes, else specific class ID; second param 0 = all specs
     local classID = state.classFilter > 0 and state.classFilter or 0
     EJ_SetLootFilter(classID, 0)
@@ -666,11 +668,6 @@ local function GetCurrentSeasonRaidInstanceIDs()
     return instanceIDs
 end
 
--- Invalidate raid season cache (call on season/tier change)
-local function InvalidateRaidSeasonCache()
-    cachedRaidSeasonInstanceIDs = nil
-end
-
 -- Build difficulty options for current instance from static data
 local function GetDifficultyOptionsForInstance(instanceID)
     if not instanceID then return {} end
@@ -710,15 +707,17 @@ function ns:SetDefaultDifficulty(state)
     -- Default to Normal for both raids and dungeons
     local preferredDiffIDs = ns.Constants.PREFERRED_DIFFICULTY_IDS
 
+    local found = false
     state.selectedDifficultyIndex = 1
     for _, prefID in ipairs(preferredDiffIDs) do
         for idx, diff in ipairs(difficulties) do
             if diff.id == prefID then
                 state.selectedDifficultyIndex = idx
+                found = true
                 break
             end
         end
-        if state.selectedDifficultyIndex > 1 then break end
+        if found then break end
     end
 
     local diff = difficulties[state.selectedDifficultyIndex]
@@ -990,8 +989,6 @@ function ns:CreateItemBrowser()
         -- Click handler
         rowFrame:SetScript("OnClick", function()
             state.selectedInstance = elementData.instanceID
-            -- Keep current difficulty when changing instances within same type
-            state.expandedBosses = {}
             InvalidateCache()
             ns:RefreshBrowser()
         end)
@@ -1184,12 +1181,13 @@ function ns:CreateItemBrowser()
     self:InitDifficultyDropdown(difficultyDropdown)
 
     -- Subscribe to state changes for auto-refresh (update checkmarks when items change)
-    frame.stateHandles = {}
-    frame.stateHandles.itemsChanged = ns.State:Subscribe(ns.StateEvents.ITEMS_CHANGED, function(data)
-        if frame:IsShown() then
-            ns:RefreshRightPanel()  -- Update checkmarks
-        end
-    end)
+    frame.stateHandles = {
+        {event = ns.StateEvents.ITEMS_CHANGED, handle = ns.State:Subscribe(ns.StateEvents.ITEMS_CHANGED, function()
+            if frame:IsShown() then
+                ns:RefreshRightPanel()  -- Update checkmarks
+            end
+        end)},
+    }
 
     -- Set defaults if not already set
     local state = ns.browserState
@@ -1243,7 +1241,7 @@ function ns:InitTypeDropdown(dropdown)
                     end
 
                     state.instanceType = typeInfo.id
-                    state.expandedBosses = {}
+
 
                     -- Auto-select first instance for new type (prevents N/A difficulty)
                     state.selectedInstance = ns:GetFirstInstanceForCurrentState(state)
@@ -1278,8 +1276,6 @@ function ns:InitExpansionDropdown(dropdown)
                 state.expansion = nil
                 -- Auto-select first instance for new tier
                 state.selectedInstance = ns:GetFirstInstanceForCurrentState(state)
-                -- Keep current difficulty when changing tiers within same type
-                state.expandedBosses = {}
                 InvalidateCache()
                 ns:RefreshBrowser()
             end
@@ -1294,8 +1290,6 @@ function ns:InitExpansionDropdown(dropdown)
                         state.expansion = exp.id
                         -- Auto-select first instance for new tier
                         state.selectedInstance = ns:GetFirstInstanceForCurrentState(state)
-                        -- Keep current difficulty when changing tiers within same type
-                        state.expandedBosses = {}
                         InvalidateCache()
                         ns:RefreshBrowser()
                     end
@@ -1314,7 +1308,6 @@ function ns:InitClassDropdown(dropdown)
                 function() return ns.browserState.classFilter == classInfo.id end,
                 function()
                     ns.browserState.classFilter = classInfo.id
-                    ns.browserState.expandedBosses = {}
                     InvalidateCache()
                     ns:RefreshBrowser()
                 end
@@ -1538,9 +1531,6 @@ function ns:RefreshLeftPanel()
     -- Create and set DataProvider
     local dataProvider = CreateDataProvider(data)
     frame.leftScrollBox:SetDataProvider(dataProvider)
-
-    -- Refresh right panel after left panel is ready
-    self:RefreshRightPanel()
 end
 
 function ns:RefreshRightPanel()
@@ -1571,7 +1561,7 @@ function ns:RefreshRightPanel()
 
         -- Defer cache building to next frame so spinner renders
         C_Timer.After(0, function()
-            CacheInstanceData(function(success)
+            local ok, err = pcall(CacheInstanceData, function(success)
                 if success then
                     -- Cache ready, filter and render
                     local filteredData = ns.BrowserFilter:GetFilteredData()
@@ -1579,6 +1569,10 @@ function ns:RefreshRightPanel()
                 end
                 -- If not success, version changed - another refresh will handle it
             end)
+            if not ok then
+                ns.BrowserCache.loadingState = "idle"
+                if frame.loadingFrame then frame.loadingFrame:Hide() end
+            end
         end)
     else
         -- Cache valid, just filter and render (instant)
@@ -1610,10 +1604,6 @@ end
 -- Cleanup
 -------------------------------------------------------------------------------
 
-function ns:ClearBrowserRowPools()
-    -- Both panels now use ScrollBox, nothing to release
-end
-
 function ns:CleanupItemBrowser()
     InvalidateCache()
 
@@ -1622,8 +1612,8 @@ function ns:CleanupItemBrowser()
 
         -- Unsubscribe from state events
         if ns.ItemBrowser.stateHandles then
-            for event, handle in pairs(ns.ItemBrowser.stateHandles) do
-                ns.State:Unsubscribe(ns.StateEvents[event:upper()] or event, handle)
+            for _, entry in ipairs(ns.ItemBrowser.stateHandles) do
+                ns.State:Unsubscribe(entry.event, entry.handle)
             end
             ns.ItemBrowser.stateHandles = nil
         end

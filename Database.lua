@@ -5,7 +5,7 @@ local addonName, ns = ...
 
 -- Cache global functions
 local pairs, ipairs, type = pairs, ipairs, type
-local tinsert, wipe = table.insert, wipe
+local wipe = wipe
 
 -- Database version for migrations
 local DB_VERSION = 6
@@ -152,6 +152,7 @@ function ns:MigrateDatabase()
             LootWishlistCharDB.activeWishlist = db.settings.activeWishlist
             db.settings.activeWishlist = nil
         end
+        db.version = 5
     end
 
     -- Version 5 -> 6 migration: Remove track feature
@@ -202,12 +203,6 @@ function ns:GetSetting(key)
     return self.db.settings[key]
 end
 
--- Set setting
-function ns:SetSetting(key, value)
-    if not self.db or not self.db.settings then return end
-    self.db.settings[key] = value
-end
-
 -- Set character-specific setting
 function ns:SetCharSetting(key, value)
     if not self.charDB then return end
@@ -228,11 +223,6 @@ end
 -- Unmark item as collected
 function ns:UnmarkItemCollected(itemID)
     self.charDB.collected[itemID] = nil
-end
-
--- Get all collected items
-function ns:GetCollectedItems()
-    return self.charDB.collected
 end
 
 -- Check if item is checked off

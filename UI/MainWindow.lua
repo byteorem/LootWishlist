@@ -4,8 +4,7 @@
 local addonName, ns = ...
 
 -- Cache global functions
-local pairs, ipairs, type, unpack = pairs, ipairs, type, unpack
-local tinsert = table.insert
+local pairs, ipairs, unpack = pairs, ipairs, unpack
 local math = math
 local string = string
 local CreateFrame, StaticPopup_Show = CreateFrame, StaticPopup_Show
@@ -16,9 +15,6 @@ local MenuUtil = MenuUtil
 
 local WINDOW_WIDTH = 450
 local WINDOW_HEIGHT = 500
-
--- Selected item tracking
-local selectedItemID = nil
 
 -- Helper to get collapsed groups from persisted settings
 local function GetCollapsedGroups()
@@ -95,7 +91,6 @@ local function BuildDataProviderData(ns)
                     itemLink = entry.itemLink,
                     isCollected = ns:IsItemCollected(entry.itemID),
                     isChecked = ns:IsItemChecked(entry.itemID, entry.sourceText),
-                    isSelected = (selectedItemID == entry.itemID),
                 })
             end
         end
@@ -240,7 +235,7 @@ function ns:CreateMainWindow()
             -- Remove button handler
             rowFrame.removeBtn:SetScript("OnClick", function()
                 ns:RemoveItemFromWishlist(elementData.itemID, elementData.sourceText)
-                selectedItemID = nil
+
                 ns:RefreshMainWindow()
                 ns:UpdateBrowserRowsForItem(elementData.itemID, elementData.sourceText)
             end)
@@ -332,6 +327,8 @@ function ns:CreateMainWindow()
     frame.itemInfoHandle = EventRegistry:RegisterFrameEventAndCallback(
         "GET_ITEM_INFO_RECEIVED",
         function(event, itemID)
+            -- Skip if window is hidden
+            if not frame:IsShown() then return end
             -- Refresh if we were waiting for this item
             if ns.itemCache[itemID] == nil then
                 ns:CacheItemInfo(itemID)
@@ -349,17 +346,18 @@ function ns:CreateMainWindow()
     )
 
     -- Subscribe to state changes for auto-refresh
-    frame.stateHandles = {}
-    frame.stateHandles.itemsChanged = ns.State:Subscribe(ns.StateEvents.ITEMS_CHANGED, function(data)
-        if frame:IsShown() then
-            ns:RefreshMainWindow()
-        end
-    end)
-    frame.stateHandles.itemCollected = ns.State:Subscribe(ns.StateEvents.ITEM_COLLECTED, function(data)
-        if frame:IsShown() then
-            ns:RefreshMainWindow()
-        end
-    end)
+    frame.stateHandles = {
+        {event = ns.StateEvents.ITEMS_CHANGED, handle = ns.State:Subscribe(ns.StateEvents.ITEMS_CHANGED, function()
+            if frame:IsShown() then
+                ns:RefreshMainWindow()
+            end
+        end)},
+        {event = ns.StateEvents.ITEM_COLLECTED, handle = ns.State:Subscribe(ns.StateEvents.ITEM_COLLECTED, function()
+            if frame:IsShown() then
+                ns:RefreshMainWindow()
+            end
+        end)},
+    }
 
     -- Show and refresh
     frame:Show()
@@ -378,7 +376,6 @@ function ns:InitWishlistDropdown(dropdown)
                 function() return name == ns:GetActiveWishlistName() end,
                 function()
                     ns:SetActiveWishlist(name)
-                    selectedItemID = nil
                     ns:RefreshMainWindow()
                     -- Refresh browser to show new wishlist's browser state
                     if ns.ItemBrowser and ns.ItemBrowser:IsShown() then
@@ -471,7 +468,7 @@ StaticPopupDialogs["LOOTWISHLIST_NEW_WISHLIST"] = {
             local success, err = ns:CreateWishlist(name)
             if success then
                 ns:SetActiveWishlist(name)
-                selectedItemID = nil
+
                 ns:RefreshMainWindow()
             else
                 print("|cff00ccffLootWishlist|r: " .. (err or "Failed to create wishlist"))
@@ -506,7 +503,7 @@ StaticPopupDialogs["LOOTWISHLIST_RENAME_WISHLIST"] = {
         if newName and newName ~= "" and newName ~= currentName then
             local success, err = ns:RenameWishlist(currentName, newName)
             if success then
-                selectedItemID = nil
+
                 ns:RefreshMainWindow()
                 if ns.ItemBrowser and ns.ItemBrowser:IsShown() then
                     ns:RefreshBrowser()
@@ -540,7 +537,6 @@ StaticPopupDialogs["LOOTWISHLIST_DELETE_WISHLIST"] = {
         local currentName = self.data
         local success, err = ns:DeleteWishlist(currentName)
         if success then
-            selectedItemID = nil
             ns:RefreshMainWindow()
             if ns.ItemBrowser and ns.ItemBrowser:IsShown() then
                 ns:RefreshBrowser()
@@ -613,8 +609,8 @@ function ns:CleanupMainWindow()
 
         -- Unsubscribe from state events
         if ns.MainWindow.stateHandles then
-            for event, handle in pairs(ns.MainWindow.stateHandles) do
-                ns.State:Unsubscribe(ns.StateEvents[event:upper()] or event, handle)
+            for _, entry in ipairs(ns.MainWindow.stateHandles) do
+                ns.State:Unsubscribe(entry.event, entry.handle)
             end
             ns.MainWindow.stateHandles = nil
         end
@@ -642,7 +638,6 @@ function ns:ShowItemContextMenu(elementData)
         -- Remove option
         local removeBtn = rootDescription:CreateButton("|cffff6666Remove from Wishlist|r", function()
             ns:RemoveItemFromWishlist(itemID, sourceText)
-            selectedItemID = nil
             ns:RefreshMainWindow()
             ns:UpdateBrowserRowsForItem(itemID, sourceText)
         end)

@@ -4,7 +4,7 @@
 local addonName, ns = ...
 
 -- Cache global functions
-local pairs, unpack = pairs, unpack
+local unpack = unpack
 local CreateFrame, CreateColor = CreateFrame, CreateColor
 
 ns.UI = ns.UI or {}
@@ -39,19 +39,44 @@ local COLORS = {
 
 ns.UI.COLORS = COLORS
 
+-- Pre-cached ColorMixin objects for each color (avoid per-call allocation)
+local COLOR_OBJECTS = {}
+for key, color in pairs(COLORS) do
+    if type(color) == "table" and #color >= 3 then
+        COLOR_OBJECTS[color] = CreateColor(unpack(color))
+    end
+end
+
+-- Pre-cached color pair tables (avoid per-row allocation)
+local COLOR_PAIRS = {
+    header = {COLORS.headerLeft, COLORS.headerRight},
+    headerHover = {COLORS.headerHoverLeft, COLORS.headerHoverRight},
+    row = {COLORS.rowLeft, COLORS.rowRight},
+    rowHover = {COLORS.rowHoverLeft, COLORS.rowHoverRight},
+}
+ns.UI.COLOR_PAIRS = COLOR_PAIRS
+
+-- Get or create a cached ColorMixin for a color table
+local function GetColorObject(color)
+    if not COLOR_OBJECTS[color] then
+        COLOR_OBJECTS[color] = CreateColor(unpack(color))
+    end
+    return COLOR_OBJECTS[color]
+end
+
 -- Create a horizontal gradient texture
 function ns.UI:CreateGradientTexture(parent, color1, color2)
     local tex = parent:CreateTexture(nil, "BACKGROUND")
     tex:SetAllPoints()
     tex:SetColorTexture(1, 1, 1, 1)
-    tex:SetGradient("HORIZONTAL", CreateColor(unpack(color1)), CreateColor(unpack(color2)))
+    tex:SetGradient("HORIZONTAL", GetColorObject(color1), GetColorObject(color2))
     return tex
 end
 
 -- Apply gradient to existing texture
 function ns.UI:SetGradient(tex, color1, color2)
     tex:SetColorTexture(1, 1, 1, 1)
-    tex:SetGradient("HORIZONTAL", CreateColor(unpack(color1)), CreateColor(unpack(color2)))
+    tex:SetGradient("HORIZONTAL", GetColorObject(color1), GetColorObject(color2))
 end
 
 -- Create a basic button
@@ -298,8 +323,8 @@ function ns.UI:SetupHeaderRow(row, data, width)
     self:SetGradient(row.bg, COLORS.headerLeft, COLORS.headerRight)
 
     -- Store colors for hover
-    row.normalColors = {COLORS.headerLeft, COLORS.headerRight}
-    row.hoverColors = {COLORS.headerHoverLeft, COLORS.headerHoverRight}
+    row.normalColors = COLOR_PAIRS.header
+    row.hoverColors = COLOR_PAIRS.headerHover
 
     -- Show expand icon
     row.expandIcon:Show()
@@ -349,8 +374,8 @@ function ns.UI:SetupItemRow(row, data, width, itemInfo)
     self:SetGradient(row.bg, COLORS.rowLeft, COLORS.rowRight)
 
     -- Store colors for hover
-    row.normalColors = {COLORS.rowLeft, COLORS.rowRight}
-    row.hoverColors = {COLORS.rowHoverLeft, COLORS.rowHoverRight}
+    row.normalColors = COLOR_PAIRS.row
+    row.hoverColors = COLOR_PAIRS.rowHover
 
     -- Show icon
     row.icon:Show()
@@ -547,8 +572,8 @@ function ns.UI:SetupBrowserBossRow(row, data, width)
     self:SetGradient(row.bg, COLORS.headerLeft, COLORS.headerRight)
 
     -- Store colors for hover
-    row.normalColors = {COLORS.headerLeft, COLORS.headerRight}
-    row.hoverColors = {COLORS.headerHoverLeft, COLORS.headerHoverRight}
+    row.normalColors = COLOR_PAIRS.header
+    row.hoverColors = COLOR_PAIRS.headerHover
 
     -- Show boss name
     row.bossName:SetText(data.name or "Unknown")
@@ -578,8 +603,8 @@ function ns.UI:SetupBrowserLootRow(row, data, width)
     self:SetGradient(row.bg, COLORS.rowLeft, COLORS.rowRight)
 
     -- Store colors for hover
-    row.normalColors = {COLORS.rowLeft, COLORS.rowRight}
-    row.hoverColors = {COLORS.rowHoverLeft, COLORS.rowHoverRight}
+    row.normalColors = COLOR_PAIRS.row
+    row.hoverColors = COLOR_PAIRS.rowHover
 
     -- Show icon
     row.icon:SetTexture(data.icon or 134400)
@@ -680,8 +705,8 @@ function ns.UI:SetupInstanceRow(row, data, width, isSelected)
     self:SetGradient(row.bg, COLORS.rowLeft, COLORS.rowRight)
 
     -- Store colors for hover
-    row.normalColors = {COLORS.rowLeft, COLORS.rowRight}
-    row.hoverColors = {COLORS.rowHoverLeft, COLORS.rowHoverRight}
+    row.normalColors = COLOR_PAIRS.row
+    row.hoverColors = COLOR_PAIRS.rowHover
 
     -- Show name
     row.name:SetText(data.name or "Unknown")
@@ -708,7 +733,3 @@ function ns.UI:SetupInstanceRow(row, data, width, isSelected)
     end)
 end
 
--- Get instance row extent (uniform height)
-function ns.UI:GetInstanceRowExtent(dataIndex, elementData, dims)
-    return dims and dims.instanceRowHeight or self.INSTANCE_ROW_HEIGHT
-end
