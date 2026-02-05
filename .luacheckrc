@@ -29,6 +29,9 @@ globals = {
 
     -- Static popup dialogs
     "StaticPopupDialogs",
+
+    -- UI Frames (need write access for state sync)
+    "EncounterJournal",
 }
 
 read_globals = {

@@ -194,12 +194,6 @@ ns.BrowserCache = {
     searchIndex = {},
 }
 
--- Get instance name from static data
-local function GetCachedInstanceName(instanceID)
-    local info = ns:GetInstanceInfo(instanceID)
-    return info and info.name or ""
-end
-
 -- Check if cache is valid for current state
 local function IsCacheValid()
     local state = ns.browserState
@@ -256,26 +250,90 @@ local function CacheInstanceData(onComplete)
     cache.loadingState = "loading"
     local cacheVersion = cache.version
 
-    local instanceName = GetCachedInstanceName(state.selectedInstance)
-
     -- Collect all items from EJ API with state protection
     local bosses = {}
     local searchIndex = {}
     local pendingItems = {}
 
-    -- Select instance first, then set filters (order matters for EJ API)
+    -- CRITICAL: Establish EJ API state BEFORE any queries
+    -- The EJ state may be corrupted by:
+    -- - Adventure Journal being opened
+    -- - GetInstancesForTier() iterating through instances
+    -- - Other addons using EJ API
+    --
+    -- We MUST fully reset EJ state by:
+    -- 1. Selecting the correct tier FIRST
+    -- 2. Then selecting our target instance
+    -- 3. Then setting difficulty and class filter
+    -- 4. Query encounters DIRECTLY (never use cached encounters)
+
+    -- Determine the correct tier for this instance
+    -- Priority: browserState.expansion > cached instance info > search all tiers
+    local tierID = state.expansion
+
+    -- If no expansion set (e.g., current season filter), try to find the tier
+    if not tierID then
+        -- Check if we have cached info for this instance
+        local cachedInfo = ns.Data._instanceInfo[state.selectedInstance]
+        if cachedInfo and cachedInfo.tierID then
+            tierID = cachedInfo.tierID
+        else
+            -- Last resort: the instance ID is valid, EJ_SelectInstance should work
+            -- We'll select the latest tier as fallback context
+            local tiers = GetExpansionTiers()
+            if tiers[1] then
+                tierID = tiers[1].id
+            end
+        end
+    end
+
+    -- Step 1: Select tier to establish correct expansion context
+    if tierID then
+        EJ_SelectTier(tierID)
+    end
+
+    -- Step 2: Sync EncounterJournal frame state if it exists
+    -- This fixes corruption when Adventure Journal has been opened, which sets
+    -- EncounterJournal.instanceID. Without this sync, EJ_GetEncounterInfoByIndex()
+    -- returns data for the wrong instance.
+    if EncounterJournal then
+        EncounterJournal.instanceID = state.selectedInstance
+        EncounterJournal.encounterID = nil
+    end
+
+    -- Step 3: Select our target instance
     EJ_SelectInstance(state.selectedInstance)
+
+    -- Get instance info for later use
+    local ejName = EJ_GetInstanceInfo()
+
+    -- Step 4: Set difficulty (must be after instance selection)
     if state.selectedDifficultyID then
         EJ_SetDifficulty(state.selectedDifficultyID)
     end
 
-    -- Class filter must be set AFTER selecting instance
+    -- Step 4: Set class filter AFTER selecting instance (EJ API requirement)
     -- 0 = all classes, else specific class ID; second param 0 = all specs
     local classID = state.classFilter > 0 and state.classFilter or 0
     EJ_SetLootFilter(classID, 0)
 
-    -- Get encounters from static data (for structure/ordering)
-    local encounters = ns:GetEncountersForInstance(state.selectedInstance)
+    -- Get instance name AFTER selecting instance (ensures correct EJ state)
+    local instanceName = ejName or ""
+
+    -- CRITICAL: Query encounters DIRECTLY from EJ API, bypassing the cache
+    -- The cache may contain stale encounters from when EJ state was corrupted
+    local encounters = {}
+    local encounterIndex = 1
+    while true do
+        local encounterName, _, encounterID = EJ_GetEncounterInfoByIndex(encounterIndex)
+        if not encounterID then break end
+        table.insert(encounters, {
+            id = encounterID,
+            name = encounterName,
+            order = encounterIndex,
+        })
+        encounterIndex = encounterIndex + 1
+    end
 
     for _, encounter in ipairs(encounters) do
         -- Select encounter in EJ API to get its loot
@@ -292,7 +350,7 @@ local function CacheInstanceData(onComplete)
                 if (not slot or slot == "") and info.itemID then
                     local _, _, _, equipLoc = C_Item.GetItemInfoInstant(info.itemID)
                     if equipLoc and equipLoc ~= "" then
-                        slot = EQUIP_LOC_NAMES[equipLoc] or equipLoc
+                        slot = EQUIP_LOC_NAMES[equipLoc] or ""
                     end
                 end
 
@@ -802,7 +860,16 @@ end
 
 function ns:CreateItemBrowser()
     if ns.ItemBrowser then
+        -- CRITICAL: Invalidate BOTH caches to recover from EJ state corruption
+        -- ns.Data caches (tiers, instances, encounters) may be stale if Adventure Journal was opened
+        ns:InvalidateDataCache()  -- Clear static data cache (Loader.lua)
+        InvalidateCache()  -- Clear loot cache (this file)
+
         ns.ItemBrowser:Show()
+
+        -- CRITICAL: Must refresh after showing to repopulate with fresh data
+        -- Without this, the UI shows stale data from before caches were invalidated
+        ns:RefreshBrowser()
         return
     end
 
@@ -1467,7 +1534,6 @@ function ns:RefreshLeftPanel()
     if not frame or not frame.leftScrollBox then return end
 
     local state = ns.browserState
-
     local isRaid = (state.instanceType == "raid")
     local data = {}
     local firstInstanceID = nil

@@ -24,7 +24,7 @@ local DUNGEON_DIFFICULTIES = {
 }
 
 local RAID_DIFFICULTIES = {
-    {id = 17, name = "Looking For Raid", type = "raid"},
+    {id = 17, name = "Raid Finder", type = "raid"},
     {id = 14, name = "Normal", type = "raid"},
     {id = 15, name = "Heroic", type = "raid"},
     {id = 16, name = "Mythic", type = "raid"},
@@ -74,8 +74,11 @@ function ns:GetInstancesForTier(tierID, isRaid)
     -- Check cache
     local cacheKey = isRaid and "raid" or "dungeon"
     if ns.Data._tierInstances[tierID] and ns.Data._tierInstances[tierID][cacheKey] then
+        print("|cffff9900[LW Debug]|r GetInstancesForTier CACHE HIT for tierID:", tierID, "isRaid:", isRaid)
         return ns.Data._tierInstances[tierID][cacheKey]
     end
+
+    print("|cffff9900[LW Debug]|r GetInstancesForTier CACHE MISS for tierID:", tierID, "isRaid:", isRaid, "- querying EJ API")
 
     local instances = {}
 
@@ -108,6 +111,8 @@ function ns:GetInstancesForTier(tierID, isRaid)
 
         index = index + 1
     end
+
+    print("|cffff9900[LW Debug]|r GetInstancesForTier found", #instances, "instances for tierID:", tierID, "isRaid:", isRaid)
 
     -- Sort by order (ascending)
     table.sort(instances, function(a, b) return a.order < b.order end)
@@ -142,22 +147,23 @@ function ns:GetAllInstances()
 end
 
 -- Get instance info by ID
-function ns:GetInstanceInfo(instanceID)
+-- @param skipSelect: if true, assumes instance is already selected in EJ API (for batch operations)
+function ns:GetInstanceInfo(instanceID, skipSelect)
     -- Check cache first
     if ns.Data._instanceInfo[instanceID] then
         return ns.Data._instanceInfo[instanceID]
     end
 
-    -- Try to get from EJ API directly
-    local savedInstance = EJ_GetCurrentInstance and EJ_GetCurrentInstance()
+    -- Only select instance if not already selected (caller may have done this)
+    if not skipSelect then
+        EJ_SelectInstance(instanceID)
+    end
 
-    EJ_SelectInstance(instanceID)
     local name, _, _, _, _, _, dungeonAreaMapID, _, shouldDisplayDifficulty = EJ_GetInstanceInfo()
 
-    -- Restore previous state
-    if savedInstance and savedInstance > 0 then
-        EJ_SelectInstance(savedInstance)
-    end
+    -- NOTE: We no longer restore previous EJ state - this was causing desync issues
+    -- when the Adventure Journal had corrupted our EJ state. Callers that need
+    -- specific EJ state should set it themselves.
 
     if not name then return nil end
 
@@ -215,16 +221,22 @@ function ns:GetAllDifficulties()
 end
 
 -- Get encounters for an instance
-function ns:GetEncountersForInstance(instanceID)
+-- @param skipSelect: if true, assumes instance is already selected in EJ API (for batch operations)
+function ns:GetEncountersForInstance(instanceID, skipSelect)
     -- Check cache
     if ns.Data._instanceEncounters[instanceID] then
+        print("|cffff9900[LW Debug]|r GetEncountersForInstance CACHE HIT for instanceID:", instanceID, "- returning", #ns.Data._instanceEncounters[instanceID], "cached encounters")
         return ns.Data._instanceEncounters[instanceID]
     end
 
-    local encounters = {}
-    local savedInstance = EJ_GetCurrentInstance and EJ_GetCurrentInstance()
+    print("|cffff9900[LW Debug]|r GetEncountersForInstance CACHE MISS for instanceID:", instanceID, "- querying EJ API")
 
-    EJ_SelectInstance(instanceID)
+    local encounters = {}
+
+    -- Only select instance if not already selected (caller may have done this)
+    if not skipSelect then
+        EJ_SelectInstance(instanceID)
+    end
 
     local index = 1
     while true do
@@ -240,10 +252,11 @@ function ns:GetEncountersForInstance(instanceID)
         index = index + 1
     end
 
-    -- Restore previous state
-    if savedInstance and savedInstance > 0 then
-        EJ_SelectInstance(savedInstance)
-    end
+    print("|cffff9900[LW Debug]|r GetEncountersForInstance found", #encounters, "encounters from EJ API for instanceID:", instanceID)
+
+    -- NOTE: We no longer restore previous EJ state - this was causing desync issues
+    -- when the Adventure Journal had corrupted our EJ state. Callers that need
+    -- specific EJ state should set it themselves.
 
     -- Sort by order (ascending) - should already be in order
     table.sort(encounters, function(a, b) return a.order < b.order end)
@@ -301,6 +314,7 @@ end
 -------------------------------------------------------------------------------
 
 function ns:InvalidateDataCache()
+    print("|cff00ff00[LW Debug]|r InvalidateDataCache called - clearing all ns.Data caches")
     ns.Data._tiers = nil
     ns.Data._tierInstances = {}
     ns.Data._instanceInfo = {}
