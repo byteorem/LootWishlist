@@ -482,7 +482,7 @@ StaticPopupDialogs["LOOTWISHLIST_DELETE_WISHLIST"] = {
     OnShow = function(self)
         -- Get current name at show time
         local currentName = ns:GetActiveWishlistName()
-        self.text:SetFormattedText("Delete wishlist \"%s\"?\n\nThis cannot be undone.", currentName)
+        self.Text:SetFormattedText("Delete wishlist \"%s\"?\n\nThis cannot be undone.", currentName)
         self.data = currentName  -- Store for OnAccept
     end,
     OnAccept = function(self)
