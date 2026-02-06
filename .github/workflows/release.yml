@@ -19,3 +19,7 @@ jobs:
           args: -r ./release
         env:
           WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: ./release/*.zip
