@@ -12,10 +12,10 @@ local LibStub = LibStub
 -- Sound options for dropdown
 local SOUND_OPTIONS = {
     {value = 8959, label = "Raid Warning"},
-    {value = 8174, label = "Ready Check"},
-    {value = 3081, label = "Level Up"},
-    {value = 567458, label = "UI Bonus Loot Roll End"},
-    {value = 567482, label = "Treasure Found"},
+    {value = 8960, label = "Ready Check"},
+    {value = 888, label = "Level Up"},
+    {value = 31581, label = "UI Bonus Loot Roll End"},
+    {value = 12891, label = "Achievement Gained"},
 }
 
 local function CreateOptionsPanel()
