@@ -2,7 +2,7 @@
 ## Title: LootWishlist
 ## Notes: Track gear wishlists and get alerts when desired items drop
 ## Author: Byteorem
-## Version: 1.0.6
+## Version: 1.0.7
 ## DefaultState: enabled
 ## Category: Loot
 ## SavedVariables: LootWishlistDB
