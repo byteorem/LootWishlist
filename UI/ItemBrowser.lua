@@ -1604,3 +1604,14 @@ function ns:CleanupItemBrowser()
         end
     end
 end
+
+-------------------------------------------------------------------------------
+-- Test Exposure (only when WoWUnit present)
+-------------------------------------------------------------------------------
+
+if WoWUnit then
+    ns._test = ns._test or {}
+    ns._test.IsCacheValid = IsCacheValid
+    ns._test.InvalidateCache = InvalidateCache
+    ns._test.BuildSearchIndexEntry = BuildSearchIndexEntry
+end

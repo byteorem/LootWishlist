@@ -98,4 +98,5 @@ read_globals = {
 
     -- Optional dependencies
     "DevTool",
+    "WoWUnit",
 }

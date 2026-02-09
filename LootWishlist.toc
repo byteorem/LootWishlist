@@ -8,6 +8,7 @@
 ## SavedVariables: LootWishlistDB
 ## SavedVariablesPerCharacter: LootWishlistCharDB
 ## X-Wago-ID: n6VL7ZGd
+## OptionalDeps: WoWUnit
 
 Libs/LibDBIcon-1-0/LibStub/LibStub.lua
 Libs/LibDBIcon-1-0/CallbackHandler-1.0/CallbackHandler-1.0.lua
@@ -27,3 +28,4 @@ UI/Widgets.lua
 UI/Options.lua
 UI/MainWindow.lua
 UI/ItemBrowser.lua
+Tests/ItemBrowserTests.lua
