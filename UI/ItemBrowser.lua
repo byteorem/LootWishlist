@@ -506,8 +506,6 @@ local SLOT_FILTER_MAP = {
     ["WEAPON"] = {
         Enum.ItemSlotFilterType.MainHand,
         Enum.ItemSlotFilterType.OffHand,
-        Enum.ItemSlotFilterType.TwoHand,
-        Enum.ItemSlotFilterType.OneHand,
     },
 }
 

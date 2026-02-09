@@ -1,24 +1,24 @@
 -- WoW Enum definitions for CLI testing
 -- Subset of enums needed for ItemBrowser tests
+-- Values match actual WoW API: https://warcraft.wiki.gg/wiki/Enum.ItemSlotFilterType
 
 Enum = {
     ItemSlotFilterType = {
         Head = 0,
         Neck = 1,
         Shoulder = 2,
-        Back = 3,
+        Back = 3,       -- "Cloak" in API docs
         Chest = 4,
         Wrist = 5,
-        Hands = 6,
+        Hands = 6,      -- "Hand" in API docs
         Waist = 7,
         Legs = 8,
         Feet = 9,
-        Finger = 10,
-        Trinket = 11,
-        MainHand = 12,
-        OffHand = 13,
-        TwoHand = 14,
-        OneHand = 15,
-        Other = 16,
+        MainHand = 10,
+        OffHand = 11,
+        Finger = 12,
+        Trinket = 13,
+        Other = 14,
+        NoFilter = 15,
     },
 }

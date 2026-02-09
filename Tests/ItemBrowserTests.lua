@@ -149,16 +149,6 @@ function Tests:PassesSlotFilter_WeaponOffHand()
     WoWUnit.IsTrue(result)
 end
 
-function Tests:PassesSlotFilter_WeaponTwoHand()
-    local result = ns.BrowserFilter:PassesSlotFilter(FilterType.TwoHand, "WEAPON")
-    WoWUnit.IsTrue(result)
-end
-
-function Tests:PassesSlotFilter_WeaponOneHand()
-    local result = ns.BrowserFilter:PassesSlotFilter(FilterType.OneHand, "WEAPON")
-    WoWUnit.IsTrue(result)
-end
-
 function Tests:PassesSlotFilter_NonWeaponForWeaponFilter()
     local result = ns.BrowserFilter:PassesSlotFilter(FilterType.Head, "WEAPON")
     WoWUnit.IsFalse(result)
@@ -334,7 +324,7 @@ function Tests:InvalidateCache_ResetsState()
     ns._test.InvalidateCache()
 
     WoWUnit.AreEqual("idle", ns.BrowserCache.loadingState)
-    WoWUnit.IsNil(ns.BrowserCache.instanceID)
+    WoWUnit.IsTrue(ns.BrowserCache.instanceID == nil)
     WoWUnit.AreEqual(versionBefore + 1, ns.BrowserCache.version)
 
     -- Restore original state
@@ -394,7 +384,7 @@ function Tests:BuildSearchIndexEntry_MaxLength()
 
     -- Should NOT have longer prefix
     local longerPrefix = longName:lower():sub(1, maxLen + 1)
-    WoWUnit.IsNil(searchIndex[longerPrefix])
+    WoWUnit.IsTrue(searchIndex[longerPrefix] == nil)
 end
 
 -------------------------------------------------------------------------------

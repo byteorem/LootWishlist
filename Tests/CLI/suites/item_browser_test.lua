@@ -140,16 +140,6 @@ function Tests.PassesSlotFilter_WeaponOffHand()
     assert(result == true, "OffHand should pass WEAPON filter")
 end
 
-function Tests.PassesSlotFilter_WeaponTwoHand()
-    local result = ns.BrowserFilter:PassesSlotFilter(FilterType.TwoHand, "WEAPON")
-    assert(result == true, "TwoHand should pass WEAPON filter")
-end
-
-function Tests.PassesSlotFilter_WeaponOneHand()
-    local result = ns.BrowserFilter:PassesSlotFilter(FilterType.OneHand, "WEAPON")
-    assert(result == true, "OneHand should pass WEAPON filter")
-end
-
 function Tests.PassesSlotFilter_NonWeaponForWeaponFilter()
     local result = ns.BrowserFilter:PassesSlotFilter(FilterType.Head, "WEAPON")
     assert(result == false, "Head should fail WEAPON filter")
