@@ -3,6 +3,7 @@ max_line_length = false
 
 exclude_files = {
     "Libs/**",
+    "Tests/CLI/**",  -- CLI test mocks intentionally set globals
 }
 
 ignore = {
