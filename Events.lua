@@ -40,6 +40,7 @@ local LOOT_BUCKET_DELAY = 0.1  -- seconds
 
 -- Event handler functions with bucketing
 function ns:OnLootReady(event, autoLoot)
+    ns.Debug:Log("loot", "LOOT_READY fired", {autoLoot = autoLoot})
     -- Bucket loot processing to avoid processing same window multiple times
     if lootBucket then return end
     lootBucket = C_Timer.After(LOOT_BUCKET_DELAY, function()
@@ -49,6 +50,7 @@ function ns:OnLootReady(event, autoLoot)
 end
 
 function ns:OnLootOpened(event)
+    ns.Debug:Log("loot", "LOOT_OPENED fired")
     -- Bucket with OnLootReady
     if lootBucket then return end
     lootBucket = C_Timer.After(LOOT_BUCKET_DELAY, function()
@@ -200,12 +202,14 @@ function ns:CheckLootSlot(slot)
 
     if self:IsItemCollected(itemID) then return end
 
+    ns.Debug:Log("loot", "Wishlist match in slot " .. slot, {itemID = itemID, wishlist = wishlistName})
     self:ShowLootAlert(slot, itemID, lootLink, wishlistName)
     pendingLootItems[itemID] = true
 end
 
 -- Show alert for wishlist item
 function ns:ShowLootAlert(slot, itemID, itemLink, wishlistName)
+    ns.Debug:Log("loot", "ShowLootAlert", {slot = slot, itemID = itemID, wishlist = wishlistName})
     -- Chat alert
     if self:GetSetting("chatAlertEnabled") then
         print("|cff00ff00[LootWishlist]|r Wishlist item found: " .. itemLink)
@@ -329,6 +333,7 @@ function ns:OnItemLooted(itemID)
     if not self:IsItemOnWishlist(itemID) then return end
     if self:IsItemCollected(itemID) then return end
 
+    ns.Debug:Log("loot", "Item looted", {itemID = itemID})
     -- Mark as collected
     self:MarkItemCollected(itemID)
     pendingLootItems[itemID] = nil

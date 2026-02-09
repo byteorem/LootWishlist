@@ -1,263 +1,264 @@
 -- LootWishlist Data Loader
--- Runtime EJ API integration with lazy caching
+-- Static data lookups from Data/StaticData.lua with one-time EJ tier index resolution
 
 local _, ns = ...
 
--- Initialize Data namespace with lazy caches
+-- Initialize Data namespace
 ns.Data = {
-    _tiers = nil,                -- Lazy: [{id, name, order}]
-    _tierInstances = {},         -- Lazy: [tierID][isRaid] = [{id, name, order}]
-    _instanceInfo = {},          -- Lazy: [instanceID] = {id, name, tierID, isRaid, order}
-    _currentSeasonInstances = nil, -- Lazy: {raids=[], dungeons=[]}
+    _instanceInfo = {},          -- [instanceID] = {id, name, tierID, isRaid, shouldDisplayDifficulty}
+    _tierIndexResolved = false,  -- One-time flag for EJ tier index resolution
 }
 
 -------------------------------------------------------------------------------
--- Hardcoded Difficulty Mappings (IDs are stable across patches)
+-- EJ Addon Loading
+-- The EJ system requires Blizzard_EncounterJournal to be loaded for item data.
+-- Without it, EJ_GetNumLoot works but C_EncounterJournal.GetLootInfoByIndex returns nil.
 -------------------------------------------------------------------------------
 
-local DUNGEON_DIFFICULTIES = {
-    {id = 1, name = "Normal", type = "dungeon"},
-    {id = 2, name = "Heroic", type = "dungeon"},
-    {id = 23, name = "Mythic", type = "dungeon"},
-}
+local _ejAddonLoaded = false
 
-local RAID_DIFFICULTIES = {
-    {id = 17, name = "Raid Finder", type = "raid"},
-    {id = 14, name = "Normal", type = "raid"},
-    {id = 15, name = "Heroic", type = "raid"},
-    {id = 16, name = "Mythic", type = "raid"},
-}
+function ns.Data:EnsureEJLoaded()
+    if _ejAddonLoaded then return true end
 
-local ALL_DIFFICULTIES = {}
-for _, diff in ipairs(DUNGEON_DIFFICULTIES) do
-    ALL_DIFFICULTIES[diff.id] = {name = diff.name, type = diff.type}
+    if C_AddOns.IsAddOnLoaded("Blizzard_EncounterJournal") then
+        _ejAddonLoaded = true
+        return true
+    end
+
+    local loaded, reason = C_AddOns.LoadAddOn("Blizzard_EncounterJournal")
+    if loaded then
+        _ejAddonLoaded = true
+        return true
+    end
+
+    return false, reason
 end
-for _, diff in ipairs(RAID_DIFFICULTIES) do
-    ALL_DIFFICULTIES[diff.id] = {name = diff.name, type = diff.type}
+
+-------------------------------------------------------------------------------
+-- EJ Event Suppression
+-- Prevents Adventure Journal from reacting to programmatic EJ state changes
+-- (Best practice from AtlasLoot, RCLootCouncil2, InspectEquip)
+-------------------------------------------------------------------------------
+
+local _ejSuppressDepth = 0
+local _ejSavedHandler = nil
+
+function ns.Data:SuppressEJEvents()
+    _ejSuppressDepth = _ejSuppressDepth + 1
+    if _ejSuppressDepth > 1 then return end  -- Already suppressed
+
+    if EncounterJournal then
+        _ejSavedHandler = EncounterJournal:GetScript("OnEvent")
+        EncounterJournal:SetScript("OnEvent", nil)
+    end
+end
+
+function ns.Data:RestoreEJEvents()
+    _ejSuppressDepth = _ejSuppressDepth - 1
+    if _ejSuppressDepth > 0 then return end  -- Still nested
+    _ejSuppressDepth = 0  -- Clamp to 0 (defensive)
+
+    if EncounterJournal and _ejSavedHandler then
+        EncounterJournal:SetScript("OnEvent", _ejSavedHandler)
+    end
+    _ejSavedHandler = nil
+end
+
+-------------------------------------------------------------------------------
+-- Live Instance Scanner
+-- Queries EJ_GetInstanceByIndex to determine which instances are actually
+-- available in-game (filters out unreleased/future content from static data)
+-------------------------------------------------------------------------------
+
+local _liveInstances = {}  -- Cache: ["tierIndex_0"|"tierIndex_1"] = {[instanceID] = true}
+
+local function ScanLiveInstances(ejTierIndex, isRaid)
+    local cacheKey = ejTierIndex .. "_" .. (isRaid and 1 or 0)
+    if _liveInstances[cacheKey] then
+        return _liveInstances[cacheKey]
+    end
+
+    local ok, result = pcall(function()
+        ns.Data:SuppressEJEvents()
+
+        EJ_SelectTier(ejTierIndex)
+        local set = {}
+        local index = 1
+        while true do
+            local instanceID = EJ_GetInstanceByIndex(index, isRaid)
+            if not instanceID then break end
+            set[instanceID] = true
+            index = index + 1
+        end
+
+        ns.Data:RestoreEJEvents()
+        return set
+    end)
+
+    if not ok then
+        ns.Data:RestoreEJEvents()  -- Ensure restore on error
+        return nil  -- Signal fallback to unfiltered
+    end
+
+    _liveInstances[cacheKey] = result
+    return result
+end
+
+-------------------------------------------------------------------------------
+-- One-time Tier Index Resolution
+-- Maps static tier names to runtime EJ tier indices (needed for EJ_SelectTier)
+-------------------------------------------------------------------------------
+
+local function ResolveTierIndices()
+    if ns.Data._tierIndexResolved then return end
+    ns.Data._tierIndexResolved = true
+
+    local tierIndexMap = {}
+    for i = 1, EJ_GetNumTiers() do
+        local name = EJ_GetTierInfo(i)
+        if name then
+            tierIndexMap[name] = i
+        end
+    end
+
+    for _, tier in ipairs(ns.StaticData.tiers) do
+        tier.id = tierIndexMap[tier.name]
+    end
+end
+
+-------------------------------------------------------------------------------
+-- Pre-populate _instanceInfo from static data
+-------------------------------------------------------------------------------
+
+local function EnsureInstanceInfo()
+    if next(ns.Data._instanceInfo) then return end
+
+    -- Build reverse lookup: instanceID -> tierID (using EJ tier index)
+    ResolveTierIndices()
+
+    for _, tier in ipairs(ns.StaticData.tiers) do
+        if tier.id then
+            local tierData = ns.StaticData.tierInstances[tier.journalTierID]
+            if tierData then
+                for _, inst in ipairs(tierData.raid) do
+                    local static = ns.StaticData.instances[inst.id]
+                    if static then
+                        ns.Data._instanceInfo[inst.id] = {
+                            id = inst.id,
+                            name = static.name,
+                            tierID = tier.id,
+                            isRaid = true,
+                            shouldDisplayDifficulty = static.shouldDisplayDifficulty,
+                        }
+                    end
+                end
+                for _, inst in ipairs(tierData.dungeon) do
+                    local static = ns.StaticData.instances[inst.id]
+                    if static then
+                        ns.Data._instanceInfo[inst.id] = {
+                            id = inst.id,
+                            name = static.name,
+                            tierID = tier.id,
+                            isRaid = false,
+                            shouldDisplayDifficulty = static.shouldDisplayDifficulty,
+                        }
+                    end
+                end
+            end
+        end
+    end
 end
 
 -------------------------------------------------------------------------------
 -- Data Access Functions
 -------------------------------------------------------------------------------
 
--- Get all tiers sorted by order (newest first)
+-- Get all tiers sorted newest first (with resolved EJ indices)
 function ns:GetTiers()
-    if ns.Data._tiers then
-        return ns.Data._tiers
-    end
+    ResolveTierIndices()
+    return ns.StaticData.tiers
+end
 
-    local tiers = {}
-    local numTiers = EJ_GetNumTiers()
+-- Get instances for a specific tier (tierID = EJ tier index)
+function ns:GetInstancesForTier(tierID, isRaid)
+    ResolveTierIndices()
 
-    for tierIndex = 1, numTiers do
-        local tierName = EJ_GetTierInfo(tierIndex)
-        if tierName then
-            table.insert(tiers, {
-                id = tierIndex,
-                name = tierName,
-                order = tierIndex, -- Higher index = newer expansion
-            })
+    -- Find the journalTierID for this EJ tier index
+    local journalTierID
+    for _, tier in ipairs(ns.StaticData.tiers) do
+        if tier.id == tierID then
+            journalTierID = tier.journalTierID
+            break
         end
     end
 
-    -- Sort newest first (higher order = newer)
-    table.sort(tiers, function(a, b) return a.order > b.order end)
+    if not journalTierID then return {} end
 
-    ns.Data._tiers = tiers
-    return tiers
-end
+    local tierData = ns.StaticData.tierInstances[journalTierID]
+    if not tierData then return {} end
 
--- Get instances for a specific tier
-function ns:GetInstancesForTier(tierID, isRaid)
-    -- Check cache
-    local cacheKey = isRaid and "raid" or "dungeon"
-    if ns.Data._tierInstances[tierID] and ns.Data._tierInstances[tierID][cacheKey] then
-        return ns.Data._tierInstances[tierID][cacheKey]
+    local staticList = isRaid and tierData.raid or tierData.dungeon
+
+    -- Filter against live EJ instances (removes unreleased/future content)
+    local liveSet = ScanLiveInstances(tierID, isRaid)
+    if not liveSet then
+        return staticList  -- Fallback: scan failed, return unfiltered
     end
 
-    local instances = {}
-
-    EJ_SelectTier(tierID)
-
-    local index = 1
-    while true do
-        local instanceID, instanceName, _, _, _, _, _, _, order = EJ_GetInstanceByIndex(index, isRaid)
-        if not instanceID then break end
-
-        -- Select instance to get shouldDisplayDifficulty
-        EJ_SelectInstance(instanceID)
-        local _, _, _, _, _, _, _, _, shouldDisplayDifficulty = EJ_GetInstanceInfo()
-
-        table.insert(instances, {
-            id = instanceID,
-            name = instanceName,
-            order = order or index,
-        })
-
-        -- Cache instance info with shouldDisplayDifficulty
-        ns.Data._instanceInfo[instanceID] = {
-            id = instanceID,
-            name = instanceName,
-            tierID = tierID,
-            isRaid = isRaid,
-            order = order or index,
-            shouldDisplayDifficulty = shouldDisplayDifficulty,
-        }
-
-        index = index + 1
+    local filtered = {}
+    for _, inst in ipairs(staticList) do
+        if liveSet[inst.id] then
+            table.insert(filtered, inst)
+        end
     end
-
-    -- Sort by order (ascending)
-    table.sort(instances, function(a, b) return a.order < b.order end)
-
-    -- Cache results
-    ns.Data._tierInstances[tierID] = ns.Data._tierInstances[tierID] or {}
-    ns.Data._tierInstances[tierID][cacheKey] = instances
-
-    return instances
+    return filtered
 end
 
 -- Get all instances (for searching across tiers)
 function ns:GetAllInstances()
-    -- Ensure all tiers are loaded
-    local tiers = ns:GetTiers()
-    for _, tier in ipairs(tiers) do
-        ns:GetInstancesForTier(tier.id, false) -- Dungeons
-        ns:GetInstancesForTier(tier.id, true)  -- Raids
-    end
+    EnsureInstanceInfo()
 
-    -- Return cached instance info
     local result = {}
     for instanceID, info in pairs(ns.Data._instanceInfo) do
         result[instanceID] = {
             name = info.name,
             tierID = info.tierID,
             isRaid = info.isRaid,
-            order = info.order,
         }
     end
     return result
 end
 
 -- Get instance info by ID
--- @param skipSelect: if true, assumes instance is already selected in EJ API (for batch operations)
-function ns:GetInstanceInfo(instanceID, skipSelect)
-    -- Check cache first
+function ns:GetInstanceInfo(instanceID)
+    EnsureInstanceInfo()
+
     if ns.Data._instanceInfo[instanceID] then
         return ns.Data._instanceInfo[instanceID]
     end
 
-    -- Only select instance if not already selected (caller may have done this)
-    if not skipSelect then
-        EJ_SelectInstance(instanceID)
-    end
+    -- Fallback: check static data directly (instance may not be in any tier)
+    local static = ns.StaticData.instances[instanceID]
+    if not static then return nil end
 
-    local name, _, _, _, _, _, dungeonAreaMapID, _, shouldDisplayDifficulty = EJ_GetInstanceInfo()
-
-    -- NOTE: We no longer restore previous EJ state - this was causing desync issues
-    -- when the Adventure Journal had corrupted our EJ state. Callers that need
-    -- specific EJ state should set it themselves.
-
-    if not name then return nil end
-
-    -- We don't know tier/isRaid without searching, but this is rarely called standalone
     local info = {
         id = instanceID,
-        name = name,
+        name = static.name,
         tierID = nil,
-        isRaid = nil,
-        order = nil,
-        shouldDisplayDifficulty = shouldDisplayDifficulty,
+        isRaid = static.isRaid,
+        shouldDisplayDifficulty = static.shouldDisplayDifficulty,
     }
-
-    -- Try to find in cache from tier loading
     ns.Data._instanceInfo[instanceID] = info
     return info
 end
 
--- Get valid difficulties for an instance
+-- Get valid difficulties for an instance (from static data)
+-- Note: Returns difficulties regardless of shouldDisplayDifficulty.
+-- UI should use shouldDisplayDifficulty to hide the dropdown, not gate data.
 function ns:GetDifficultiesForInstance(instanceID)
     local info = ns:GetInstanceInfo(instanceID)
     if not info then return {} end
 
-    -- World bosses and other instances without difficulty selection
-    if info.shouldDisplayDifficulty == false then
-        return {}
-    end
-
-    -- Determine if raid or dungeon based on cached info or EJ query
-    local isRaid = info.isRaid
-
-    -- If we don't have isRaid cached, check if it's in raid tier instances
-    if isRaid == nil then
-        -- Fallback: check all tiers for this instance
-        local tiers = ns:GetTiers()
-        for _, tier in ipairs(tiers) do
-            local raids = ns:GetInstancesForTier(tier.id, true)
-            for _, inst in ipairs(raids) do
-                if inst.id == instanceID then
-                    isRaid = true
-                    break
-                end
-            end
-            if isRaid then break end
-        end
-        if isRaid == nil then isRaid = false end
-    end
-
-    return isRaid and RAID_DIFFICULTIES or DUNGEON_DIFFICULTIES
+    return ns.StaticData.instanceDifficulties[instanceID] or {}
 end
 
--- Get current season instance IDs
-function ns:GetCurrentSeasonInstances()
-    if ns.Data._currentSeasonInstances then
-        return ns.Data._currentSeasonInstances
-    end
-
-    local result = {
-        raids = {},
-        dungeons = {},
-    }
-
-    -- Get M+ dungeons from C_ChallengeMode
-    if C_ChallengeMode and C_ChallengeMode.GetMapTable then
-        local mapIDs = C_ChallengeMode.GetMapTable()
-        if mapIDs then
-            for _, mapID in ipairs(mapIDs) do
-                -- Convert challenge map ID to instance ID
-                if C_EncounterJournal and C_EncounterJournal.GetInstanceForGameMap then
-                    local instanceID = C_EncounterJournal.GetInstanceForGameMap(mapID)
-                    if instanceID and instanceID > 0 then
-                        table.insert(result.dungeons, instanceID)
-                    end
-                end
-            end
-        end
-    end
-
-    -- Get current raid tier (most recent tier with raids)
-    local tiers = ns:GetTiers()
-    for _, tier in ipairs(tiers) do
-        local raids = ns:GetInstancesForTier(tier.id, true)
-        if #raids > 0 then
-            for _, raid in ipairs(raids) do
-                table.insert(result.raids, raid.id)
-            end
-            break -- Only get the newest tier with raids
-        end
-    end
-
-    ns.Data._currentSeasonInstances = result
-    return result
-end
-
--------------------------------------------------------------------------------
--- Cache Invalidation
--------------------------------------------------------------------------------
-
-function ns:InvalidateDataCache()
-    ns.Data._tiers = nil
-    ns.Data._tierInstances = {}
-    ns.Data._instanceInfo = {}
-    ns.Data._currentSeasonInstances = nil
-end

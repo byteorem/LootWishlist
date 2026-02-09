@@ -41,17 +41,17 @@ read_globals = {
     "LibStub",
 
     -- C_* Namespaces
+    "C_AddOns",
     "C_Item",
     "C_Timer",
     "C_EncounterJournal",
-    "C_ChallengeMode",
 
     -- Encounter Journal
-    "EJ_SelectTier", "EJ_SetLootFilter",
-    "EJ_SetDifficulty", "EJ_GetInstanceByIndex", "EJ_SelectInstance",
-    "EJ_GetEncounterInfoByIndex", "EJ_SelectEncounter", "EJ_GetNumLoot",
+    "EJ_SelectTier", "EJ_SetLootFilter", "EJ_ResetLootFilter", "EJ_GetLootFilter",
+    "EJ_SetDifficulty", "EJ_SelectInstance",
+    "EJ_SelectEncounter", "EJ_GetNumLoot", "EJ_GetEncounterInfoByIndex",
     "EJ_GetNumTiers", "EJ_GetTierInfo",
-    "EJ_GetInstanceInfo",
+    "EJ_GetInstanceInfo", "EJ_GetInstanceByIndex",
 
     -- Enums
     "Enum",
@@ -62,6 +62,7 @@ read_globals = {
 
     -- Item Loading (async)
     "Item",
+    "ContinuableContainer",
 
     -- UI Parents/Objects
     "UIParent", "GameTooltip", "LootFrame",
@@ -71,6 +72,7 @@ read_globals = {
 
     -- Utility Functions
     "GetTime", "UnitClass", "PlaySound", "ReloadUI",
+    "GetClassInfo", "MAX_CLASSES",
     "StaticPopup_Show", "CopyTable",
 
     -- Glow Effects
@@ -90,4 +92,10 @@ read_globals = {
 
     -- Lua Extensions (WoW)
     "wipe",
+
+    -- Lua standard (WoW global)
+    "date",
+
+    -- Optional dependencies
+    "DevTool",
 }

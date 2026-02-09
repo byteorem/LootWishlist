@@ -43,11 +43,17 @@ end
 function ns.State:Notify(event, data)
     if not self.listeners[event] then return end
 
+    if ns.Debug then
+        ns.Debug:Log("state", "State: " .. event, data)
+    end
+
     for _, callback in pairs(self.listeners[event]) do
         -- Protected call to prevent one bad listener from breaking others
         local ok, err = pcall(callback, data)
-        if not ok and ns.debug then
-            print("|cffff0000[LootWishlist] State callback error:|r " .. tostring(err))
+        if not ok then
+            if ns.Debug then
+                ns.Debug:Log("state", "State callback error: " .. tostring(err))
+            end
         end
     end
 end

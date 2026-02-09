@@ -17,8 +17,10 @@ Libs/LibDBIcon-1-0/LibDBIcon-1.0/LibDBIcon-1.0.lua
 Core.lua
 Constants.lua
 Database.lua
+Data/StaticData.lua
 Data/Loader.lua
 State.lua
+Debug.lua
 Wishlist.lua
 Events.lua
 UI/Widgets.lua

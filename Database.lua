@@ -25,6 +25,7 @@ local DEFAULTS = {
         chatAlertEnabled = true,
         alertSound = 8959, -- ns.Constants.SOUND.RAID_WARNING (hardcoded here since DEFAULTS is evaluated at load time)
         browserSize = 1, -- ns.Constants.BROWSER_SIZE_NORMAL
+        debugEnabled = false,
         collapsedGroups = {},  -- Persist collapse state
         minimapIcon = {
             hide = false,

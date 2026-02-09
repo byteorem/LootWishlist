@@ -9,7 +9,7 @@ ns.Constants = {
     -------------------------------------------------------------------------------
     CLEANUP_INTERVAL_SECONDS = 60,
     GLOW_PULSE_INTERVAL = 0.5,
-    ASYNC_LOAD_TIMEOUT = 2.0,
+    ASYNC_LOAD_TIMEOUT = 5.0,
     ITEM_REFRESH_BATCH_DELAY = 0.1,
 
     -------------------------------------------------------------------------------

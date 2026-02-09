@@ -122,6 +122,10 @@ SlashCmdList["LOOTWISHLIST"] = function(msg)
         print("|cff00ccffLootWishlist|r: Use Browse panel to add items with track data.")
     elseif cmd == "test" then
         ns:TestAlert()
+    elseif cmd == "debug" then
+        ns.Debug:Toggle()
+    elseif cmd == "inspect" then
+        ns:InspectNamespace(args)
     elseif cmd == "reset" then
         ns:ResetDatabase()
     else
@@ -135,7 +139,27 @@ function ns:PrintHelp()
     print("  |cff00ff00/lw help|r - Show this help")
     print("  |cff00ff00/lw config|r - Open settings")
     print("  |cff00ff00/lw test|r - Test alert system")
+    print("  |cff00ff00/lw debug|r - Toggle debug mode")
+    print("  |cff00ff00/lw inspect [key]|r - Inspect addon data (db/state/cache/data)")
     print("  |cff00ff00/lw reset|r - Reset all data")
+end
+
+function ns:InspectNamespace(key)
+    key = key and key:lower() or ""
+    if key == "db" then
+        ns.Debug:Inspect("ns.db", ns.db)
+    elseif key == "state" then
+        ns.Debug:Inspect("ns.browserState", ns.browserState)
+    elseif key == "cache" then
+        ns.Debug:Inspect("ns.BrowserCache", ns.BrowserCache)
+        ns.Debug:Inspect("ns.itemCache", ns.itemCache)
+    elseif key == "data" then
+        ns.Debug:Inspect("ns.Data", ns.Data)
+    elseif key == "" then
+        ns.Debug:Inspect("LootWishlist (ns)", ns)
+    else
+        print("|cff00ccffLootWishlist|r: Unknown key. Options: db, state, cache, data")
+    end
 end
 
 function ns:ToggleMainWindow()
