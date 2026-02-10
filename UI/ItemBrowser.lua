@@ -1417,12 +1417,27 @@ function ns:EnsureBrowserStateValid()
     -- Resolve difficulty if not set or invalid for current instance
     if state.selectedInstance then
         local difficulties = GetDifficultyOptionsForInstance(state.selectedInstance)
+        local instanceInfo = ns:GetInstanceInfo(state.selectedInstance)
+        local shouldDisplayDifficulty = instanceInfo and instanceInfo.shouldDisplayDifficulty ~= false
 
-        if #difficulties == 0 then
-            -- No difficulties available - use Normal Raid (14) as fallback
-            state.selectedDifficultyID = 14
+        if #difficulties == 0 or not shouldDisplayDifficulty then
+            -- World boss: save user's difficulty for restoration, use valid difficulty for API
+            if not state._preservedDifficultyID and state.selectedDifficultyID then
+                state._preservedDifficultyID = state.selectedDifficultyID
+            end
+            if #difficulties > 0 then
+                state.selectedDifficultyID = difficulties[1].id
+            else
+                state.selectedDifficultyID = 14
+            end
             state.selectedDifficultyIndex = 1
         else
+            -- Normal instance: restore preserved difficulty if available
+            if state._preservedDifficultyID then
+                state.selectedDifficultyID = state._preservedDifficultyID
+                state._preservedDifficultyID = nil
+            end
+
             -- Try to find matching difficulty by ID
             local foundIndex = FindDifficultyByID(difficulties, state.selectedDifficultyID)
             if foundIndex then

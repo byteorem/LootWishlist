@@ -1212,4 +1212,282 @@ function Tests.NeedsEJRetry_MixedFilterTypes()
     assert(result == true, "Any boss with nil filterType on first item should need retry")
 end
 
+-------------------------------------------------------------------------------
+-- EnsureBrowserStateValid preserves difficulty through world boss transition
+-------------------------------------------------------------------------------
+
+function Tests.EnsureBrowserStateValid_PreservesDifficultyForWorldBoss()
+    -- Save original state
+    local originalState = {
+        expansion = ns.browserState.expansion,
+        instanceType = ns.browserState.instanceType,
+        selectedInstance = ns.browserState.selectedInstance,
+        selectedDifficultyID = ns.browserState.selectedDifficultyID,
+        selectedDifficultyIndex = ns.browserState.selectedDifficultyIndex,
+        _preservedDifficultyID = ns.browserState._preservedDifficultyID,
+    }
+    local originalGetDifficulties = ns.GetDifficultiesForInstance
+    local originalGetInstances = ns.GetInstancesForTier
+    local originalGetInstanceInfo = ns.GetInstanceInfo
+
+    -- Setup: Heroic (15) selected on instance 1302
+    ns.browserState.expansion = 3
+    ns.browserState.instanceType = "raid"
+    ns.browserState.selectedInstance = 1302
+    ns.browserState.selectedDifficultyID = 15
+    ns.browserState.selectedDifficultyIndex = 2
+    ns.browserState._preservedDifficultyID = nil
+
+    -- Mock: 1302 has Normal+Heroic, 1278 is a world boss (1 difficulty in static data)
+    ns.GetDifficultiesForInstance = function(self, instanceID)
+        if instanceID == 1302 then
+            return {{id = 14, name = "Normal"}, {id = 15, name = "Heroic"}}
+        elseif instanceID == 1278 then
+            return {{id = 14, name = "Normal"}}
+        end
+        return {}
+    end
+    ns.GetInstancesForTier = function(self, tierID, isRaid)
+        return {{id = 1278, name = "Khaz Algar"}, {id = 1302, name = "Manaforge Omega"}}
+    end
+    -- Mock: 1278 is a world boss (shouldDisplayDifficulty = false)
+    ns.GetInstanceInfo = function(self, instanceID)
+        if instanceID == 1278 then
+            return {shouldDisplayDifficulty = false}
+        end
+        return {shouldDisplayDifficulty = true}
+    end
+
+    -- Step 1: Switch to world boss
+    ns.browserState.selectedInstance = 1278
+    ns:EnsureBrowserStateValid()
+
+    -- World boss: selectedDifficultyID should be valid for API (14), preserved saves user's (15)
+    assert(ns.browserState.selectedDifficultyID == 14,
+        "World boss should set difficultyID=14 for API, got " .. tostring(ns.browserState.selectedDifficultyID))
+    assert(ns.browserState._preservedDifficultyID == 15,
+        "World boss should preserve original difficultyID=15, got " .. tostring(ns.browserState._preservedDifficultyID))
+
+    -- Step 2: Switch back to normal raid
+    ns.browserState.selectedInstance = 1302
+    ns:EnsureBrowserStateValid()
+
+    assert(ns.browserState.selectedDifficultyID == 15,
+        "After return from world boss, difficultyID should be 15, got " .. tostring(ns.browserState.selectedDifficultyID))
+    assert(ns.browserState.selectedDifficultyIndex == 2,
+        "After return from world boss, difficultyIndex should be 2, got " .. tostring(ns.browserState.selectedDifficultyIndex))
+    assert(ns.browserState._preservedDifficultyID == nil,
+        "After return from world boss, _preservedDifficultyID should be nil, got " .. tostring(ns.browserState._preservedDifficultyID))
+
+    -- Restore
+    ns.browserState.expansion = originalState.expansion
+    ns.browserState.instanceType = originalState.instanceType
+    ns.browserState.selectedInstance = originalState.selectedInstance
+    ns.browserState.selectedDifficultyID = originalState.selectedDifficultyID
+    ns.browserState.selectedDifficultyIndex = originalState.selectedDifficultyIndex
+    ns.browserState._preservedDifficultyID = originalState._preservedDifficultyID
+    ns.GetDifficultiesForInstance = originalGetDifficulties
+    ns.GetInstancesForTier = originalGetInstances
+    ns.GetInstanceInfo = originalGetInstanceInfo
+end
+
+-------------------------------------------------------------------------------
+-- World boss: repeated EnsureBrowserStateValid calls don't overwrite preserved
+-------------------------------------------------------------------------------
+
+function Tests.WorldBossMultipleCallsNoOverwrite()
+    -- Save original state
+    local originalState = {
+        expansion = ns.browserState.expansion,
+        instanceType = ns.browserState.instanceType,
+        selectedInstance = ns.browserState.selectedInstance,
+        selectedDifficultyID = ns.browserState.selectedDifficultyID,
+        selectedDifficultyIndex = ns.browserState.selectedDifficultyIndex,
+        _preservedDifficultyID = ns.browserState._preservedDifficultyID,
+    }
+    local originalGetDifficulties = ns.GetDifficultiesForInstance
+    local originalGetInstances = ns.GetInstancesForTier
+    local originalGetInstanceInfo = ns.GetInstanceInfo
+
+    -- Setup: Heroic (15) on a normal raid
+    ns.browserState.expansion = 3
+    ns.browserState.instanceType = "raid"
+    ns.browserState.selectedInstance = 1278
+    ns.browserState.selectedDifficultyID = 15
+    ns.browserState.selectedDifficultyIndex = 2
+    ns.browserState._preservedDifficultyID = nil
+
+    ns.GetDifficultiesForInstance = function(self, instanceID)
+        if instanceID == 1278 then
+            return {{id = 14, name = "Normal"}}
+        end
+        return {}
+    end
+    ns.GetInstancesForTier = function(self, tierID, isRaid)
+        return {{id = 1278, name = "Khaz Algar"}}
+    end
+    ns.GetInstanceInfo = function(self, instanceID)
+        return {shouldDisplayDifficulty = false}
+    end
+
+    -- First call: should preserve 15, set selectedDifficultyID to 14
+    ns:EnsureBrowserStateValid()
+    assert(ns.browserState._preservedDifficultyID == 15,
+        "First call should preserve 15, got " .. tostring(ns.browserState._preservedDifficultyID))
+    assert(ns.browserState.selectedDifficultyID == 14,
+        "First call should set API difficulty to 14, got " .. tostring(ns.browserState.selectedDifficultyID))
+
+    -- Second call: should NOT overwrite _preservedDifficultyID (still 15, not 14)
+    ns:EnsureBrowserStateValid()
+    assert(ns.browserState._preservedDifficultyID == 15,
+        "Second call should NOT overwrite preserved (still 15), got " .. tostring(ns.browserState._preservedDifficultyID))
+    assert(ns.browserState.selectedDifficultyID == 14,
+        "Second call should keep API difficulty at 14, got " .. tostring(ns.browserState.selectedDifficultyID))
+
+    -- Restore
+    ns.browserState.expansion = originalState.expansion
+    ns.browserState.instanceType = originalState.instanceType
+    ns.browserState.selectedInstance = originalState.selectedInstance
+    ns.browserState.selectedDifficultyID = originalState.selectedDifficultyID
+    ns.browserState.selectedDifficultyIndex = originalState.selectedDifficultyIndex
+    ns.browserState._preservedDifficultyID = originalState._preservedDifficultyID
+    ns.GetDifficultiesForInstance = originalGetDifficulties
+    ns.GetInstancesForTier = originalGetInstances
+    ns.GetInstanceInfo = originalGetInstanceInfo
+end
+
+-------------------------------------------------------------------------------
+-- Switching between two world bosses preserves original difficulty
+-------------------------------------------------------------------------------
+
+function Tests.SwitchBetweenWorldBosses()
+    -- Save original state
+    local originalState = {
+        expansion = ns.browserState.expansion,
+        instanceType = ns.browserState.instanceType,
+        selectedInstance = ns.browserState.selectedInstance,
+        selectedDifficultyID = ns.browserState.selectedDifficultyID,
+        selectedDifficultyIndex = ns.browserState.selectedDifficultyIndex,
+        _preservedDifficultyID = ns.browserState._preservedDifficultyID,
+    }
+    local originalGetDifficulties = ns.GetDifficultiesForInstance
+    local originalGetInstances = ns.GetInstancesForTier
+    local originalGetInstanceInfo = ns.GetInstanceInfo
+
+    -- Setup: Heroic (15) selected, switching to first world boss
+    ns.browserState.expansion = 3
+    ns.browserState.instanceType = "raid"
+    ns.browserState.selectedInstance = 1278
+    ns.browserState.selectedDifficultyID = 15
+    ns.browserState.selectedDifficultyIndex = 2
+    ns.browserState._preservedDifficultyID = nil
+
+    -- Mock: both 1278 and 2000 are world bosses
+    ns.GetDifficultiesForInstance = function(self, instanceID)
+        return {{id = 14, name = "Normal"}}
+    end
+    ns.GetInstancesForTier = function(self, tierID, isRaid)
+        return {{id = 1278, name = "World Boss A"}, {id = 2000, name = "World Boss B"}, {id = 1302, name = "Raid"}}
+    end
+    ns.GetInstanceInfo = function(self, instanceID)
+        if instanceID == 1278 or instanceID == 2000 then
+            return {shouldDisplayDifficulty = false}
+        end
+        return {shouldDisplayDifficulty = true}
+    end
+
+    -- Switch to first world boss
+    ns:EnsureBrowserStateValid()
+    assert(ns.browserState._preservedDifficultyID == 15,
+        "First world boss should preserve 15, got " .. tostring(ns.browserState._preservedDifficultyID))
+
+    -- Switch to second world boss
+    ns.browserState.selectedInstance = 2000
+    ns:EnsureBrowserStateValid()
+    assert(ns.browserState._preservedDifficultyID == 15,
+        "Second world boss should still preserve 15, got " .. tostring(ns.browserState._preservedDifficultyID))
+    assert(ns.browserState.selectedDifficultyID == 14,
+        "Second world boss should use API difficulty 14, got " .. tostring(ns.browserState.selectedDifficultyID))
+
+    -- Restore
+    ns.browserState.expansion = originalState.expansion
+    ns.browserState.instanceType = originalState.instanceType
+    ns.browserState.selectedInstance = originalState.selectedInstance
+    ns.browserState.selectedDifficultyID = originalState.selectedDifficultyID
+    ns.browserState.selectedDifficultyIndex = originalState.selectedDifficultyIndex
+    ns.browserState._preservedDifficultyID = originalState._preservedDifficultyID
+    ns.GetDifficultiesForInstance = originalGetDifficulties
+    ns.GetInstancesForTier = originalGetInstances
+    ns.GetInstanceInfo = originalGetInstanceInfo
+end
+
+-------------------------------------------------------------------------------
+-- Preserved difficulty not available on new raid falls to SetDefaultDifficulty
+-------------------------------------------------------------------------------
+
+function Tests.PreservedDifficultyNotAvailableOnNewRaid()
+    -- Save original state
+    local originalState = {
+        expansion = ns.browserState.expansion,
+        instanceType = ns.browserState.instanceType,
+        selectedInstance = ns.browserState.selectedInstance,
+        selectedDifficultyID = ns.browserState.selectedDifficultyID,
+        selectedDifficultyIndex = ns.browserState.selectedDifficultyIndex,
+        _preservedDifficultyID = ns.browserState._preservedDifficultyID,
+    }
+    local originalGetDifficulties = ns.GetDifficultiesForInstance
+    local originalGetInstances = ns.GetInstancesForTier
+    local originalGetInstanceInfo = ns.GetInstanceInfo
+
+    -- Setup: _preservedDifficultyID = 16 (Mythic), switching to a raid that only has Normal
+    ns.browserState.expansion = 3
+    ns.browserState.instanceType = "raid"
+    ns.browserState.selectedInstance = 1278
+    ns.browserState.selectedDifficultyID = 14
+    ns.browserState.selectedDifficultyIndex = 1
+    ns.browserState._preservedDifficultyID = 16  -- Mythic, pre-set as if coming from world boss
+
+    -- Mock: 1278 is world boss, 1302 only has Normal
+    ns.GetDifficultiesForInstance = function(self, instanceID)
+        if instanceID == 1302 then
+            return {{id = 14, name = "Normal"}}
+        elseif instanceID == 1278 then
+            return {{id = 14, name = "Normal"}}
+        end
+        return {}
+    end
+    ns.GetInstancesForTier = function(self, tierID, isRaid)
+        return {{id = 1278, name = "World Boss"}, {id = 1302, name = "Easy Raid"}}
+    end
+    ns.GetInstanceInfo = function(self, instanceID)
+        if instanceID == 1278 then
+            return {shouldDisplayDifficulty = false}
+        end
+        return {shouldDisplayDifficulty = true}
+    end
+
+    -- Switch to normal raid that doesn't have Mythic (16)
+    ns.browserState.selectedInstance = 1302
+    ns:EnsureBrowserStateValid()
+
+    -- _preservedDifficultyID should be cleared
+    assert(ns.browserState._preservedDifficultyID == nil,
+        "Preserved difficulty should be cleared after restore, got " .. tostring(ns.browserState._preservedDifficultyID))
+    -- FindDifficultyByID(difficulties, 16) returns nil, so SetDefaultDifficulty should run
+    -- Default for a raid with only Normal should be 14
+    assert(ns.browserState.selectedDifficultyID == 14,
+        "Should fall to default difficulty 14, got " .. tostring(ns.browserState.selectedDifficultyID))
+
+    -- Restore
+    ns.browserState.expansion = originalState.expansion
+    ns.browserState.instanceType = originalState.instanceType
+    ns.browserState.selectedInstance = originalState.selectedInstance
+    ns.browserState.selectedDifficultyID = originalState.selectedDifficultyID
+    ns.browserState.selectedDifficultyIndex = originalState.selectedDifficultyIndex
+    ns.browserState._preservedDifficultyID = originalState._preservedDifficultyID
+    ns.GetDifficultiesForInstance = originalGetDifficulties
+    ns.GetInstancesForTier = originalGetInstances
+    ns.GetInstanceInfo = originalGetInstanceInfo
+end
+
 return Tests
