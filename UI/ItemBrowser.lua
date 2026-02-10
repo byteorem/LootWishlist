@@ -174,8 +174,26 @@ local function BuildSearchIndexEntry(searchIndex, itemKey, searchable)
     end
 end
 
+-- Check if EJ data needs retry (nil filterType with active class filter)
+-- When EJ data isn't pre-loaded, EJ_SetLootFilter is accepted but ineffective.
+-- All items return nil filterType/name/icon. After async load, name/icon update
+-- but filterType stays nil (it's EJ-specific). One retry after data is loaded fixes this.
+local function NeedsEJRetry(bosses, classFilter, retryCount)
+    if not classFilter or classFilter == 0 or retryCount >= 1 then
+        return false
+    end
+    if not bosses then return false end
+    for _, boss in ipairs(bosses) do
+        if boss.loot and boss.loot[1] and boss.loot[1].filterType == nil then
+            return true
+        end
+    end
+    return false
+end
+
 -- Cache instance data using Encounter Journal API for proper class/difficulty filtering
-local function CacheInstanceData(onComplete)
+local function CacheInstanceData(onComplete, retryCount)
+    retryCount = retryCount or 0
     local state = ns.browserState
     local cache = ns.BrowserCache
 
@@ -214,12 +232,10 @@ local function CacheInstanceData(onComplete)
     -- 3. Then setting difficulty and class filter
     -- 4. Query encounters DIRECTLY (never use cached encounters)
 
-    -- Determine the correct tier for this instance
+    -- Use the UI tier directly — EnsureBrowserStateValid() already guarantees
+    -- the instance belongs to state.expansion's tier list. Using _instanceInfo.tierID
+    -- breaks multi-tier instances (e.g., 1278 appears in both Current Season and TWW).
     local tierID = state.expansion
-    if not tierID then
-        local info = ns.Data._instanceInfo[state.selectedInstance]
-        tierID = info and info.tierID
-    end
 
     -- Suppress EJ events to prevent Adventure Journal from reacting to our API calls
     ns.Data:SuppressEJEvents()
@@ -233,13 +249,18 @@ local function CacheInstanceData(onComplete)
             classFilter = state.classFilter,
         })
 
-        -- Step 1: Select tier to establish correct expansion context
+        -- Step 1: Reset EJ loot state BEFORE changing instance
+        -- This clears any cached loot data from the previous instance that could
+        -- interfere with loot queries for the new instance.
+        EJ_ResetLootFilter()
+
+        -- Step 2: Select tier to establish correct expansion context
         if tierID then
             EJ_SelectTier(tierID)
             ns.Debug:Log("cache", "CacheInstanceData:EJ_SelectTier", { tierID = tierID })
         end
 
-        -- Step 2: Select instance FIRST (this resets difficulty state)
+        -- Step 3: Select instance (this resets difficulty state)
         -- Note: Previously synced EncounterJournal.instanceID here, but that causes
         -- taint issues and corrupts API state on instance switch. EJ_SelectInstance
         -- handles its own state; we rely on SuppressEJEvents() to prevent AJ interference.
@@ -250,28 +271,10 @@ local function CacheInstanceData(onComplete)
         local ejName = EJ_GetInstanceInfo()
         instanceName = ejName or ""
 
-        -- Step 3: Force difficulty state reset then set target difficulty
-        -- CRITICAL: Both difficulty changes must happen BEFORE class filter.
-        -- EJ_SetDifficulty regenerates loot, which wipes filter state for new instances.
-        -- Use a valid reset difficulty for the instance type:
-        -- - Raids: Use 17 (LFR) - always valid for raids
-        -- - Dungeons: Use 1 (Normal) - always valid for dungeons
-        local resetDifficultyID = (state.instanceType == "raid") and 17 or 1
-        EJ_SetDifficulty(resetDifficultyID)
-        ns.Debug:Log("cache", "CacheInstanceData:EJ_SetDifficulty(" .. resetDifficultyID .. ") - force reset")
-
-        -- Step 4: Set target difficulty (before filter!)
-        -- This regenerates the loot table for the target difficulty.
-        -- CRITICAL: Always call EJ_SetDifficulty, even for world bosses.
-        -- shouldDisplayDifficulty only controls UI visibility, not API requirements.
-        local targetDifficultyID = state.selectedDifficultyID or 14
-        EJ_SetDifficulty(targetDifficultyID)
-        ns.Debug:Log("cache", "CacheInstanceData:EJ_SetDifficulty", { difficultyID = targetDifficultyID })
-
-        -- Step 5: Apply class filter AFTER all difficulty changes are done
-        -- This ensures filter is applied to the final loot table, not an intermediate state.
+        -- Step 4: Apply class filter BEFORE difficulty
+        -- The filter must be set before EJ_SetDifficulty regenerates the loot table,
+        -- otherwise the filter may not properly constrain results for some instances.
         -- Note: classID 0 is invalid - only call EJ_SetLootFilter for real classes
-        EJ_ResetLootFilter()
         local classID = state.classFilter
         if classID > 0 then
             EJ_SetLootFilter(classID, 0)
@@ -279,6 +282,14 @@ local function CacheInstanceData(onComplete)
         else
             ns.Debug:Log("cache", "CacheInstanceData:EJ_ResetLootFilter (all classes)")
         end
+
+        -- Step 5: Set target difficulty (after filter!)
+        -- This regenerates the loot table with the filter already applied.
+        -- CRITICAL: Always call EJ_SetDifficulty, even for world bosses.
+        -- shouldDisplayDifficulty only controls UI visibility, not API requirements.
+        local targetDifficultyID = state.selectedDifficultyID or 14
+        EJ_SetDifficulty(targetDifficultyID)
+        ns.Debug:Log("cache", "CacheInstanceData:EJ_SetDifficulty", { difficultyID = targetDifficultyID })
 
         -- DIAGNOSTIC: Only log if filter mismatch (reduces log spam)
         local actualClassID, actualSpecID = EJ_GetLootFilter()
@@ -404,6 +415,41 @@ local function CacheInstanceData(onComplete)
         local capturedVersion = cache.version
         local callbackFired = false  -- Guard against double-fire from callback + timeout
 
+        -- Shared completion handler for both ContinueOnLoad and timeout paths.
+        -- updateFn runs item entry updates (nil for timeout path).
+        local function completeLoad(updateFn)
+            if callbackFired then return end
+            callbackFired = true
+
+            ns.Debug:Log("cache", "completeLoad", {
+                source = updateFn and "callback" or "timeout",
+                versionMatch = (cache.version == capturedVersion),
+            })
+
+            -- Version guard: abort if cache was invalidated during loading
+            if cache.version ~= capturedVersion then
+                wipe(cache.bosses)
+                wipe(cache.searchIndex)
+                cache.loadingState = "idle"
+                return
+            end
+
+            if updateFn then updateFn() end
+
+            -- Check if EJ data needs retry (nil filterType = class filter ineffective)
+            if NeedsEJRetry(bosses, state.classFilter, retryCount) then
+                ns.Debug:Log("cache", "completeLoad:RETRY", { retryCount = retryCount })
+                C_Timer.After(0.1, function()
+                    if cache.version ~= capturedVersion then return end
+                    CacheInstanceData(onComplete, retryCount + 1)
+                end)
+                return
+            end
+
+            cache.loadingState = "ready"
+            if onComplete then onComplete(true) end
+        end
+
         -- Build item lookup for batch update after load
         local itemMap = {}
         local container = ContinuableContainer:Create()
@@ -414,69 +460,50 @@ local function CacheInstanceData(onComplete)
         end
 
         container:ContinueOnLoad(function()
-            -- Guard: prevent double-fire if timeout already ran
-            if callbackFired then return end
-            callbackFired = true
+            completeLoad(function()
+                -- Update all cached entries with loaded data
+                for _, data in pairs(itemMap) do
+                    local item, pending = data.item, data.pending
+                    local loadedName = item:GetItemName()
+                    local loadedIcon = item:GetItemIcon()
+                    local loadedLink = item:GetItemLink()
 
-            -- Version guard: abort if cache was invalidated during loading
-            if cache.version ~= capturedVersion then
-                -- Clear partial data from this aborted load
-                wipe(cache.bosses)
-                wipe(cache.searchIndex)
-                cache.loadingState = "idle"
-                return
-            end
-
-            -- Update all cached entries with loaded data
-            for _, data in pairs(itemMap) do
-                local item, pending = data.item, data.pending
-                local loadedName = item:GetItemName()
-                local loadedIcon = item:GetItemIcon()
-                local loadedLink = item:GetItemLink()
-
-                if loadedName and loadedName ~= "" then
-                    pending.entry.name = loadedName
-                    -- Update search index for newly loaded name (only if not already indexed)
-                    local itemKey = pending.itemID .. "|" .. pending.bossID
-                    if not searchIndex[""] or not searchIndex[""][itemKey] then
-                        BuildSearchIndexEntry(searchIndex, itemKey, loadedName)
+                    if loadedName and loadedName ~= "" then
+                        pending.entry.name = loadedName
+                        -- Update search index for newly loaded name (only if not already indexed)
+                        local itemKey = pending.itemID .. "|" .. pending.bossID
+                        local firstChar = loadedName:sub(1, 1):lower()
+                        if not searchIndex[firstChar] or not searchIndex[firstChar][itemKey] then
+                            BuildSearchIndexEntry(searchIndex, itemKey, loadedName)
+                        end
+                    end
+                    if loadedIcon then
+                        pending.entry.icon = loadedIcon
+                    end
+                    if loadedLink and not pending.entry.link then
+                        pending.entry.link = loadedLink
                     end
                 end
-                if loadedIcon then
-                    pending.entry.icon = loadedIcon
-                end
-                if loadedLink and not pending.entry.link then
-                    pending.entry.link = loadedLink
-                end
-            end
-
-            cache.loadingState = "ready"
-            if onComplete then onComplete(true) end
+            end)
         end)
 
         -- Fallback timeout - complete anyway after timeout
         C_Timer.After(ns.Constants.ASYNC_LOAD_TIMEOUT, function()
-            -- Guard: prevent double-fire if callback already ran
-            if callbackFired then return end
-            callbackFired = true
-
-            -- Version guard: abort if cache was invalidated during loading
-            if cache.version ~= capturedVersion then
-                wipe(cache.bosses)
-                wipe(cache.searchIndex)
-                cache.loadingState = "idle"
-                return
-            end
-
-            if cache.loadingState == "loading" then
-                cache.loadingState = "ready"
-                if onComplete then onComplete(true) end
-            end
+            completeLoad(nil)
         end)
     else
-        -- No pending items, complete immediately
-        cache.loadingState = "ready"
-        if onComplete then onComplete(true) end
+        -- No pending items — check if retry needed before marking ready
+        if NeedsEJRetry(bosses, state.classFilter, retryCount) then
+            ns.Debug:Log("cache", "noPending:RETRY", { retryCount = retryCount })
+            local capturedVersion = cache.version
+            C_Timer.After(0.5, function()
+                if cache.version ~= capturedVersion then return end
+                CacheInstanceData(onComplete, retryCount + 1)
+            end)
+        else
+            cache.loadingState = "ready"
+            if onComplete then onComplete(true) end
+        end
     end
 end
 
@@ -1359,6 +1386,34 @@ function ns:EnsureBrowserStateValid()
         end
     end
 
+    -- Ensure instance is set (auto-select first for current state)
+    if not state.selectedInstance then
+        state.selectedInstance = ns:GetFirstInstanceForCurrentState(state)
+        if state.selectedInstance then
+            InvalidateCache()
+        end
+    end
+
+    -- Ensure selected instance belongs to current tier's instance list
+    -- Note: Some instances (e.g., 1278 Khaz Algar) appear in multiple tiers, so we check
+    -- the actual instance list rather than _instanceInfo.tierID which only stores one tier
+    if state.selectedInstance and state.expansion then
+        local isRaid = (state.instanceType == "raid")
+        local instances = ns:GetInstancesForTier(state.expansion, isRaid)
+        local found = false
+        for _, inst in ipairs(instances) do
+            if inst.id == state.selectedInstance then
+                found = true
+                break
+            end
+        end
+        if not found then
+            -- Instance not in current tier's list, select first valid instance
+            state.selectedInstance = ns:GetFirstInstanceForCurrentState(state)
+            InvalidateCache()
+        end
+    end
+
     -- Resolve difficulty if not set or invalid for current instance
     if state.selectedInstance then
         local difficulties = GetDifficultyOptionsForInstance(state.selectedInstance)
@@ -1384,6 +1439,13 @@ function ns:EnsureBrowserStateValid()
             end
         end
     end
+
+    ns.Debug:Log("state", "EnsureBrowserStateValid:RESOLVED", {
+        expansion = state.expansion,
+        selectedInstance = state.selectedInstance,
+        selectedDifficultyID = state.selectedDifficultyID,
+        selectedDifficultyIndex = state.selectedDifficultyIndex,
+    })
 end
 
 function ns:RefreshBrowser()
@@ -1474,17 +1536,11 @@ function ns:RefreshLeftPanel()
     local state = ns.browserState
     local isRaid = (state.instanceType == "raid")
     local data = {}
-    local firstInstanceID = nil
 
-    -- Get instances for selected tier from static data
+    -- State is already resolved by EnsureBrowserStateValid() before this runs.
+    -- This function is a pure render — it reads state and builds the DataProvider.
     local tierID = state.expansion
-    if not tierID then
-        local tiers = GetExpansionTiers()
-        if tiers[1] then
-            tierID = tiers[1].id
-            state.expansion = tierID
-        end
-    end
+    if not tierID then return end
 
     local instances = ns:GetInstancesForTier(tierID, isRaid)
 
@@ -1494,15 +1550,6 @@ function ns:RefreshLeftPanel()
             instanceID = inst.id,
             name = inst.name,
         })
-        if not firstInstanceID then
-            firstInstanceID = inst.id
-        end
-    end
-
-    -- Auto-select first instance if none selected
-    if not state.selectedInstance and firstInstanceID then
-        state.selectedInstance = firstInstanceID
-        InvalidateCache()
     end
 
     -- Create and set DataProvider
@@ -1526,7 +1573,15 @@ function ns:RefreshRightPanel()
     end
 
     -- Check cache validity
-    if not IsCacheValid() then
+    local cacheValid = IsCacheValid()
+    ns.Debug:Log("cache", "RefreshRightPanel:CacheCheck", {
+        valid = cacheValid,
+        loadingState = cache.loadingState,
+        cacheInstance = cache.instanceID,
+        stateInstance = state.selectedInstance,
+    })
+
+    if not cacheValid then
         -- Don't start new load if already loading
         if cache.loadingState == "loading" then
             return
@@ -1612,4 +1667,5 @@ if WoWUnit then
     ns._test.IsCacheValid = IsCacheValid
     ns._test.InvalidateCache = InvalidateCache
     ns._test.BuildSearchIndexEntry = BuildSearchIndexEntry
+    ns._test.NeedsEJRetry = NeedsEJRetry
 end

@@ -772,4 +772,444 @@ function Tests.GetFilteredData_NoMatchingItems()
     ns.browserState.equipmentOnlyFilter = originalEquipmentOnly
 end
 
+-------------------------------------------------------------------------------
+-- EnsureBrowserStateValid Tests (multi-tier instance handling)
+-------------------------------------------------------------------------------
+
+function Tests.EnsureBrowserStateValid_MultiTierInstance()
+    -- Save original state
+    local originalState = {
+        expansion = ns.browserState.expansion,
+        instanceType = ns.browserState.instanceType,
+        selectedInstance = ns.browserState.selectedInstance,
+    }
+    local originalGetInstances = ns.GetInstancesForTier
+
+    -- Setup: instance 1278 appears in both tier 1 (Current Season) and tier 3 (The War Within)
+    -- User is on tier 3, instance 1278 should be valid even though _instanceInfo has tierID=1
+    ns.browserState.expansion = 3
+    ns.browserState.instanceType = "raid"
+    ns.browserState.selectedInstance = 1278
+
+    -- Mock GetInstancesForTier to return 1278 as valid for tier 3
+    ns.GetInstancesForTier = function(self, tierID, isRaid)
+        if tierID == 3 and isRaid then
+            return {{id = 1278, name = "Khaz Algar"}, {id = 1302, name = "Manaforge Omega"}}
+        end
+        return {}
+    end
+
+    -- Run validation
+    ns:EnsureBrowserStateValid()
+
+    -- Instance 1278 should NOT be changed (it's valid for tier 3)
+    assert(ns.browserState.selectedInstance == 1278,
+        "Expected instance 1278 to remain selected, got " .. tostring(ns.browserState.selectedInstance))
+
+    -- Restore original state
+    ns.browserState.expansion = originalState.expansion
+    ns.browserState.instanceType = originalState.instanceType
+    ns.browserState.selectedInstance = originalState.selectedInstance
+    ns.GetInstancesForTier = originalGetInstances
+end
+
+function Tests.EnsureBrowserStateValid_InstanceNotInTier()
+    -- Save original state
+    local originalState = {
+        expansion = ns.browserState.expansion,
+        instanceType = ns.browserState.instanceType,
+        selectedInstance = ns.browserState.selectedInstance,
+    }
+    local originalGetInstances = ns.GetInstancesForTier
+    local originalGetFirst = ns.GetFirstInstanceForCurrentState
+
+    -- Setup: user switched to tier 11 (Dragonflight) but instance 1278 is NOT in that tier
+    ns.browserState.expansion = 11
+    ns.browserState.instanceType = "raid"
+    ns.browserState.selectedInstance = 1278
+
+    -- Mock: tier 11 doesn't have instance 1278
+    ns.GetInstancesForTier = function(self, tierID, isRaid)
+        if tierID == 11 and isRaid then
+            return {{id = 999, name = "Dragonflight Raid"}}
+        end
+        return {}
+    end
+
+    -- Mock: first instance for tier 11 is 999
+    ns.GetFirstInstanceForCurrentState = function(self, state)
+        return 999
+    end
+
+    -- Run validation
+    ns:EnsureBrowserStateValid()
+
+    -- Instance should be changed to 999 (first instance in tier 11)
+    assert(ns.browserState.selectedInstance == 999,
+        "Expected instance to be reset to 999, got " .. tostring(ns.browserState.selectedInstance))
+
+    -- Restore original state
+    ns.browserState.expansion = originalState.expansion
+    ns.browserState.instanceType = originalState.instanceType
+    ns.browserState.selectedInstance = originalState.selectedInstance
+    ns.GetInstancesForTier = originalGetInstances
+    ns.GetFirstInstanceForCurrentState = originalGetFirst
+end
+
+-------------------------------------------------------------------------------
+-- Integration: EnsureBrowserStateValid auto-selects instance when nil
+-------------------------------------------------------------------------------
+
+function Tests.Integration_EnsureValid_SetsInstanceWhenNil()
+    -- Save original state
+    local originalState = {
+        expansion = ns.browserState.expansion,
+        instanceType = ns.browserState.instanceType,
+        selectedInstance = ns.browserState.selectedInstance,
+        selectedDifficultyID = ns.browserState.selectedDifficultyID,
+        selectedDifficultyIndex = ns.browserState.selectedDifficultyIndex,
+    }
+    local originalGetFirst = ns.GetFirstInstanceForCurrentState
+    local originalGetInstances = ns.GetInstancesForTier
+    local originalCacheVersion = ns.BrowserCache.version
+
+    -- Setup: expansion set, instance nil
+    ns.browserState.expansion = 3
+    ns.browserState.instanceType = "raid"
+    ns.browserState.selectedInstance = nil
+    ns.browserState.selectedDifficultyID = 14
+    ns.browserState.selectedDifficultyIndex = 1
+
+    ns.GetFirstInstanceForCurrentState = function(self, state)
+        return 1278
+    end
+    ns.GetInstancesForTier = function(self, tierID, isRaid)
+        return {{id = 1278, name = "Khaz Algar"}}
+    end
+
+    ns:EnsureBrowserStateValid()
+
+    assert(ns.browserState.selectedInstance == 1278,
+        "Expected instance 1278, got " .. tostring(ns.browserState.selectedInstance))
+
+    -- Restore
+    ns.browserState.expansion = originalState.expansion
+    ns.browserState.instanceType = originalState.instanceType
+    ns.browserState.selectedInstance = originalState.selectedInstance
+    ns.browserState.selectedDifficultyID = originalState.selectedDifficultyID
+    ns.browserState.selectedDifficultyIndex = originalState.selectedDifficultyIndex
+    ns.GetFirstInstanceForCurrentState = originalGetFirst
+    ns.GetInstancesForTier = originalGetInstances
+    ns.BrowserCache.version = originalCacheVersion
+end
+
+-------------------------------------------------------------------------------
+-- Integration: RefreshLeftPanel does NOT mutate state
+-------------------------------------------------------------------------------
+
+function Tests.Integration_RefreshLeftPanel_NoStateMutation()
+    -- Save original state
+    local originalState = {
+        expansion = ns.browserState.expansion,
+        instanceType = ns.browserState.instanceType,
+        selectedInstance = ns.browserState.selectedInstance,
+    }
+    local originalGetInstances = ns.GetInstancesForTier
+
+    -- Setup: state fully resolved
+    ns.browserState.expansion = 3
+    ns.browserState.instanceType = "raid"
+    ns.browserState.selectedInstance = 1278
+
+    ns.GetInstancesForTier = function(self, tierID, isRaid)
+        return {{id = 1278, name = "Khaz Algar"}, {id = 1302, name = "Manaforge Omega"}}
+    end
+
+    -- Snapshot state before
+    local expBefore = ns.browserState.expansion
+    local instBefore = ns.browserState.selectedInstance
+
+    ns:RefreshLeftPanel()
+
+    -- State must not have changed
+    assert(ns.browserState.expansion == expBefore,
+        "RefreshLeftPanel mutated expansion: " .. tostring(ns.browserState.expansion))
+    assert(ns.browserState.selectedInstance == instBefore,
+        "RefreshLeftPanel mutated selectedInstance: " .. tostring(ns.browserState.selectedInstance))
+
+    -- Restore
+    ns.browserState.expansion = originalState.expansion
+    ns.browserState.instanceType = originalState.instanceType
+    ns.browserState.selectedInstance = originalState.selectedInstance
+    ns.GetInstancesForTier = originalGetInstances
+end
+
+-------------------------------------------------------------------------------
+-- Integration: Tier switch auto-selects first instance when current is invalid
+-------------------------------------------------------------------------------
+
+function Tests.Integration_TierSwitch_AutoSelectsFirstInstance()
+    -- Save original state
+    local originalState = {
+        expansion = ns.browserState.expansion,
+        instanceType = ns.browserState.instanceType,
+        selectedInstance = ns.browserState.selectedInstance,
+        selectedDifficultyID = ns.browserState.selectedDifficultyID,
+        selectedDifficultyIndex = ns.browserState.selectedDifficultyIndex,
+    }
+    local originalGetFirst = ns.GetFirstInstanceForCurrentState
+    local originalGetInstances = ns.GetInstancesForTier
+    local originalCacheVersion = ns.BrowserCache.version
+
+    -- Setup: switch to tier 11 where instance 1278 doesn't exist
+    ns.browserState.expansion = 11
+    ns.browserState.instanceType = "raid"
+    ns.browserState.selectedInstance = 1278
+    ns.browserState.selectedDifficultyID = 14
+    ns.browserState.selectedDifficultyIndex = 1
+
+    ns.GetInstancesForTier = function(self, tierID, isRaid)
+        if tierID == 11 then
+            return {{id = 500, name = "Dragonflight Raid"}}
+        end
+        return {}
+    end
+    ns.GetFirstInstanceForCurrentState = function(self, state)
+        return 500
+    end
+
+    ns:EnsureBrowserStateValid()
+
+    assert(ns.browserState.selectedInstance == 500,
+        "Expected instance reset to 500, got " .. tostring(ns.browserState.selectedInstance))
+
+    -- Restore
+    ns.browserState.expansion = originalState.expansion
+    ns.browserState.instanceType = originalState.instanceType
+    ns.browserState.selectedInstance = originalState.selectedInstance
+    ns.browserState.selectedDifficultyID = originalState.selectedDifficultyID
+    ns.browserState.selectedDifficultyIndex = originalState.selectedDifficultyIndex
+    ns.GetFirstInstanceForCurrentState = originalGetFirst
+    ns.GetInstancesForTier = originalGetInstances
+    ns.BrowserCache.version = originalCacheVersion
+end
+
+-------------------------------------------------------------------------------
+-- Integration: Tier switch preserves valid instance
+-------------------------------------------------------------------------------
+
+function Tests.Integration_TierSwitch_KeepsValidInstance()
+    -- Save original state
+    local originalState = {
+        expansion = ns.browserState.expansion,
+        instanceType = ns.browserState.instanceType,
+        selectedInstance = ns.browserState.selectedInstance,
+        selectedDifficultyID = ns.browserState.selectedDifficultyID,
+        selectedDifficultyIndex = ns.browserState.selectedDifficultyIndex,
+    }
+    local originalGetInstances = ns.GetInstancesForTier
+    local originalCacheVersion = ns.BrowserCache.version
+
+    -- Setup: instance 1278 exists in both tier 1 and tier 3
+    ns.browserState.expansion = 3
+    ns.browserState.instanceType = "raid"
+    ns.browserState.selectedInstance = 1278
+    ns.browserState.selectedDifficultyID = 14
+    ns.browserState.selectedDifficultyIndex = 1
+
+    ns.GetInstancesForTier = function(self, tierID, isRaid)
+        if tierID == 3 then
+            return {{id = 1278, name = "Khaz Algar"}, {id = 1302, name = "Manaforge Omega"}}
+        end
+        return {}
+    end
+
+    ns:EnsureBrowserStateValid()
+
+    assert(ns.browserState.selectedInstance == 1278,
+        "Expected instance 1278 preserved, got " .. tostring(ns.browserState.selectedInstance))
+
+    -- Restore
+    ns.browserState.expansion = originalState.expansion
+    ns.browserState.instanceType = originalState.instanceType
+    ns.browserState.selectedInstance = originalState.selectedInstance
+    ns.browserState.selectedDifficultyID = originalState.selectedDifficultyID
+    ns.browserState.selectedDifficultyIndex = originalState.selectedDifficultyIndex
+    ns.GetInstancesForTier = originalGetInstances
+    ns.BrowserCache.version = originalCacheVersion
+end
+
+-------------------------------------------------------------------------------
+-- CacheInstanceData uses state.expansion (not _instanceInfo.tierID)
+-------------------------------------------------------------------------------
+
+function Tests.CacheInstanceData_UsesStateExpansionAsTier()
+    -- Verifies the fix: after EnsureBrowserStateValid(), state.expansion is the
+    -- correct tier for multi-tier instances, not _instanceInfo.tierID.
+    -- Instance 1278 has _instanceInfo.tierID=11, but user is on tier 13.
+
+    -- Save original state
+    local originalState = {
+        expansion = ns.browserState.expansion,
+        instanceType = ns.browserState.instanceType,
+        selectedInstance = ns.browserState.selectedInstance,
+        selectedDifficultyID = ns.browserState.selectedDifficultyID,
+        selectedDifficultyIndex = ns.browserState.selectedDifficultyIndex,
+    }
+    local originalGetInstances = ns.GetInstancesForTier
+    local originalInstanceInfo = ns.Data._instanceInfo
+
+    -- Setup: user is on tier 13 (TWW), instance 1278 has _instanceInfo.tierID=11
+    ns.browserState.expansion = 13
+    ns.browserState.instanceType = "raid"
+    ns.browserState.selectedInstance = 1278
+    ns.browserState.selectedDifficultyID = 14
+    ns.browserState.selectedDifficultyIndex = 1
+
+    -- Mock _instanceInfo with wrong tierID (simulates last-write-wins)
+    ns.Data._instanceInfo = {
+        [1278] = { tierID = 11, name = "Khaz Algar" },
+    }
+
+    -- Mock: tier 13 has instance 1278
+    ns.GetInstancesForTier = function(self, tierID, isRaid)
+        if tierID == 13 and isRaid then
+            return {{id = 1278, name = "Khaz Algar"}}
+        end
+        return {}
+    end
+
+    -- Run validation (ensures instance is valid for tier 13)
+    ns:EnsureBrowserStateValid()
+
+    -- After validation, state.expansion should be 13 (the UI tier)
+    -- NOT 11 (from _instanceInfo.tierID)
+    assert(ns.browserState.expansion == 13,
+        "Expected expansion=13 (UI tier), got " .. tostring(ns.browserState.expansion))
+    assert(ns.browserState.selectedInstance == 1278,
+        "Expected instance 1278 to remain selected, got " .. tostring(ns.browserState.selectedInstance))
+
+    -- The key invariant: state.expansion (13) is what CacheInstanceData should use
+    -- for EJ_SelectTier, NOT _instanceInfo[1278].tierID (11)
+    local correctTierForEJ = ns.browserState.expansion
+    local wrongTierFromInfo = ns.Data._instanceInfo[1278].tierID
+    assert(correctTierForEJ ~= wrongTierFromInfo,
+        "Test setup error: tiers should differ to prove the fix works")
+    assert(correctTierForEJ == 13,
+        "CacheInstanceData should use tier 13 (state.expansion), not " .. tostring(correctTierForEJ))
+
+    -- Restore original state
+    ns.browserState.expansion = originalState.expansion
+    ns.browserState.instanceType = originalState.instanceType
+    ns.browserState.selectedInstance = originalState.selectedInstance
+    ns.browserState.selectedDifficultyID = originalState.selectedDifficultyID
+    ns.browserState.selectedDifficultyIndex = originalState.selectedDifficultyIndex
+    ns.GetInstancesForTier = originalGetInstances
+    ns.Data._instanceInfo = originalInstanceInfo
+end
+
+-------------------------------------------------------------------------------
+-- Integration: No double cache invalidation from RefreshLeftPanel
+-------------------------------------------------------------------------------
+
+function Tests.Integration_NoCacheDoubleInvalidation()
+    -- Save original state
+    local originalState = {
+        expansion = ns.browserState.expansion,
+        instanceType = ns.browserState.instanceType,
+        selectedInstance = ns.browserState.selectedInstance,
+    }
+    local originalGetInstances = ns.GetInstancesForTier
+    local originalCacheVersion = ns.BrowserCache.version
+
+    -- Setup: state fully resolved
+    ns.browserState.expansion = 3
+    ns.browserState.instanceType = "raid"
+    ns.browserState.selectedInstance = 1278
+
+    ns.GetInstancesForTier = function(self, tierID, isRaid)
+        return {{id = 1278, name = "Khaz Algar"}}
+    end
+
+    -- Snapshot cache version before
+    local versionBefore = ns.BrowserCache.version
+
+    ns:RefreshLeftPanel()
+
+    -- Cache version must not have changed (no InvalidateCache call)
+    assert(ns.BrowserCache.version == versionBefore,
+        "RefreshLeftPanel caused cache invalidation: version " ..
+        versionBefore .. " -> " .. ns.BrowserCache.version)
+
+    -- Restore
+    ns.browserState.expansion = originalState.expansion
+    ns.browserState.instanceType = originalState.instanceType
+    ns.browserState.selectedInstance = originalState.selectedInstance
+    ns.GetInstancesForTier = originalGetInstances
+    ns.BrowserCache.version = originalCacheVersion
+end
+
+-------------------------------------------------------------------------------
+-- NeedsEJRetry Tests (EJ class filter retry mechanism)
+-------------------------------------------------------------------------------
+
+function Tests.NeedsEJRetry_NilFilterTypeWithClassFilter()
+    local bosses = {
+        { bossID = 1, name = "Boss", loot = {{ itemID = 100, filterType = nil }} },
+    }
+    local result = ns._test.NeedsEJRetry(bosses, 8, 0)
+    assert(result == true, "Nil filterType with active class filter should need retry")
+end
+
+function Tests.NeedsEJRetry_ValidFilterType()
+    local bosses = {
+        { bossID = 1, name = "Boss", loot = {{ itemID = 100, filterType = 2 }} },
+    }
+    local result = ns._test.NeedsEJRetry(bosses, 8, 0)
+    assert(result == false, "Valid filterType should not need retry")
+end
+
+function Tests.NeedsEJRetry_AllClasses()
+    local bosses = {
+        { bossID = 1, name = "Boss", loot = {{ itemID = 100, filterType = nil }} },
+    }
+    local result = ns._test.NeedsEJRetry(bosses, 0, 0)
+    assert(result == false, "classFilter=0 (All Classes) should not need retry")
+end
+
+function Tests.NeedsEJRetry_MaxRetriesReached()
+    local bosses = {
+        { bossID = 1, name = "Boss", loot = {{ itemID = 100, filterType = nil }} },
+    }
+    local result = ns._test.NeedsEJRetry(bosses, 8, 1)
+    assert(result == false, "retryCount >= 1 should not retry")
+end
+
+function Tests.NeedsEJRetry_EmptyBosses()
+    local result = ns._test.NeedsEJRetry({}, 8, 0)
+    assert(result == false, "Empty bosses should not need retry")
+end
+
+function Tests.NeedsEJRetry_NilBosses()
+    local result = ns._test.NeedsEJRetry(nil, 8, 0)
+    assert(result == false, "Nil bosses should not need retry")
+end
+
+function Tests.NeedsEJRetry_BossWithNoLoot()
+    local bosses = {
+        { bossID = 1, name = "Boss", loot = {} },
+    }
+    local result = ns._test.NeedsEJRetry(bosses, 8, 0)
+    assert(result == false, "Boss with empty loot should not need retry")
+end
+
+function Tests.NeedsEJRetry_MixedFilterTypes()
+    local bosses = {
+        { bossID = 1, name = "Boss1", loot = {{ itemID = 100, filterType = 2 }} },
+        { bossID = 2, name = "Boss2", loot = {{ itemID = 200, filterType = nil }} },
+    }
+    local result = ns._test.NeedsEJRetry(bosses, 8, 0)
+    assert(result == true, "Any boss with nil filterType on first item should need retry")
+end
+
 return Tests

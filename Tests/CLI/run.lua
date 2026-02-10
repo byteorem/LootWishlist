@@ -84,6 +84,20 @@ ns._test.BuildSearchIndexEntry = function(searchIndex, itemKey, searchable)
     end
 end
 
+-- NeedsEJRetry: checks if EJ data needs retry for class filter
+ns._test.NeedsEJRetry = function(bosses, classFilter, retryCount)
+    if not classFilter or classFilter == 0 or retryCount >= 1 then
+        return false
+    end
+    if not bosses then return false end
+    for _, boss in ipairs(bosses) do
+        if boss.loot and boss.loot[1] and boss.loot[1].filterType == nil then
+            return true
+        end
+    end
+    return false
+end
+
 -- Load and run test suite
 print("Loading test suite...")
 local tests = dofile(scriptPath .. "suites/item_browser_test.lua")

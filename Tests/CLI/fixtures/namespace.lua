@@ -107,7 +107,13 @@ function ns:GetTiers()
 end
 
 function ns:GetInstancesForTier(tierID, isRaid)
+    -- Default: return empty list, tests will override as needed
     return {}
+end
+
+function ns:GetFirstInstanceForCurrentState(state)
+    -- Default: return 999, tests will override as needed
+    return 999
 end
 
 function ns:GetDifficultiesForInstance(instanceID)
@@ -133,4 +139,19 @@ ns.db = {
     settings = {
         browserSize = 1,
     },
+}
+
+-- ItemBrowser frame stub (so RefreshLeftPanel can run in tests)
+ns.ItemBrowser = {
+    leftScrollBox = {
+        SetDataProvider = function() end,
+        GetWidth = function() return 140 end,
+    },
+    rightScrollBox = {
+        SetDataProvider = function() end,
+    },
+    loadingFrame = { Show = function() end, Hide = function() end },
+    noItemsFrame = { Show = function() end, Hide = function() end, SetShown = function() end },
+    dims = { instanceRowHeight = 24 },
+    IsShown = function() return true end,
 }
