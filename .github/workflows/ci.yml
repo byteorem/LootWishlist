@@ -35,3 +35,16 @@ jobs:
 
       - name: Run CLI tests
         run: lua5.1 Tests/CLI/run.lua
+
+  staticdata:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Lua 5.1
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+
+      - name: Validate StaticData structure
+        run: lua5.1 Tests/CLI/run_staticdata.lua

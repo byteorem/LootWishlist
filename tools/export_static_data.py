@@ -6,8 +6,9 @@
 Export static EJ data from Wago.tools DB2 CSVs into Data/StaticData.lua.
 
 Usage:
-    uv run tools/export_static_data.py          # Skip if data unchanged
-    uv run tools/export_static_data.py --force   # Always regenerate
+    uv run tools/export_static_data.py           # Skip if data unchanged
+    uv run tools/export_static_data.py --force    # Always regenerate
+    uv run tools/export_static_data.py --check    # Check freshness (no write)
 """
 
 import csv
@@ -81,6 +82,7 @@ def lua_escape(s: str) -> str:
 
 def main():
     force = "--force" in sys.argv
+    check_only = "--check" in sys.argv
 
     # Download all CSVs
     print("Downloading CSVs from wago.tools...")
@@ -94,6 +96,19 @@ def main():
     for table in TABLES:
         hasher.update(raw_csvs[table].encode())
     new_hash = hasher.hexdigest()
+
+    # Check mode: compare hashes and exit
+    if check_only:
+        stored_hash = get_stored_hash()
+        if stored_hash == new_hash:
+            print(f"Static data is up to date (hash: {new_hash[:12]}...).")
+            sys.exit(0)
+        else:
+            print("STALE: Data/StaticData.lua does not match upstream sources.")
+            print(f"  Stored hash: {stored_hash or '(missing)'}")
+            print(f"  Current hash: {new_hash}")
+            print("  Regenerate with: uv run tools/export_static_data.py --force")
+            sys.exit(1)
 
     # Staleness check
     if not force:

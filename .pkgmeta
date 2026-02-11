@@ -6,3 +6,4 @@ ignore:
     - README.md
     - .git
     - .github
+    - Tests/CLI
