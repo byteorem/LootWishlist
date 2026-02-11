@@ -25,7 +25,7 @@ dofile(scriptPath .. "mocks/init.lua")
 print("Loading namespace fixtures...")
 dofile(scriptPath .. "fixtures/namespace.lua")
 
--- Load ItemBrowser.lua to get ns.BrowserFilter and expose test functions
+-- Load ItemBrowser.lua (ns._test is now unconditionally exposed)
 print("Loading ItemBrowser.lua...")
 local chunk = loadfile(projectRoot .. "UI/ItemBrowser.lua")
 if not chunk then
@@ -34,73 +34,24 @@ if not chunk then
 end
 chunk("LootWishlist", ns)
 
--- Expose internal functions for testing (mimic WoWUnit exposure pattern)
--- These are normally only exposed when WoWUnit is present, so we need to
--- manually extract them from the file's local scope
-if not ns._test then
-    ns._test = {}
+-- Load shared test definitions
+print("Loading shared tests...")
+local sharedChunk = loadfile(projectRoot .. "Tests/SharedTests/ItemBrowserTests.lua")
+if not sharedChunk then
+    print("[ERROR] Failed to load Tests/SharedTests/ItemBrowserTests.lua")
+    os.exit(1)
 end
+sharedChunk("LootWishlist", ns)
 
--- The IsCacheValid, InvalidateCache, and BuildSearchIndexEntry functions are
--- local to ItemBrowser.lua and only exposed when WoWUnit is present.
--- Since WoWUnit is nil in CLI, we need to recreate them here using the same logic.
+-- Build CLI assertion adapter (maps to assert())
+local T = {
+    IsTrue = function(val, msg) assert(val, msg) end,
+    IsFalse = function(val, msg) assert(not val, msg) end,
+    AreEqual = function(expected, actual, msg) assert(expected == actual, msg) end,
+}
 
--- IsCacheValid: checks if cache matches current state
-ns._test.IsCacheValid = function()
-    local state = ns.browserState
-    local cache = ns.BrowserCache
-
-    return cache.loadingState == "ready"
-       and cache.instanceID == state.selectedInstance
-       and cache.classFilter == state.classFilter
-       and cache.difficultyID == state.selectedDifficultyID
-       and cache.expansion == state.expansion
-end
-
--- InvalidateCache: resets cache to idle state
-ns._test.InvalidateCache = function()
-    local cache = ns.BrowserCache
-    cache.version = cache.version + 1
-    cache.instanceID = nil
-    cache.classFilter = nil
-    cache.difficultyID = nil
-    cache.expansion = nil
-    cache.instanceName = ""
-    wipe(cache.bosses)
-    wipe(cache.searchIndex)
-    cache.loadingState = "idle"
-end
-
--- BuildSearchIndexEntry: builds N-gram prefix tree for search
-ns._test.BuildSearchIndexEntry = function(searchIndex, itemKey, searchable)
-    local lowerSearchable = searchable:lower()
-    local maxLen = math.min(#lowerSearchable, ns.Constants.MAX_NGRAM_PREFIX_LENGTH)
-    for i = 1, maxLen do
-        local prefix = lowerSearchable:sub(1, i)
-        if not searchIndex[prefix] then
-            searchIndex[prefix] = {}
-        end
-        searchIndex[prefix][itemKey] = true
-    end
-end
-
--- NeedsEJRetry: checks if EJ data needs retry for class filter
-ns._test.NeedsEJRetry = function(bosses, classFilter, retryCount)
-    if not classFilter or classFilter == 0 or retryCount >= 1 then
-        return false
-    end
-    if not bosses then return false end
-    for _, boss in ipairs(bosses) do
-        if boss.loot and boss.loot[1] and boss.loot[1].filterType == nil then
-            return true
-        end
-    end
-    return false
-end
-
--- Load and run test suite
-print("Loading test suite...")
-local tests = dofile(scriptPath .. "suites/item_browser_test.lua")
+-- Get test table from shared definitions
+local tests = ns._sharedTests.ItemBrowser(T)
 
 print("")
 print("Running tests...")
@@ -121,7 +72,7 @@ table.sort(testNames)
 -- Run tests in sorted order
 for _, name in ipairs(testNames) do
     local testFn = tests[name]
-    local ok, err = pcall(testFn, tests)
+    local ok, err = pcall(testFn)
     if ok then
         passed = passed + 1
         print("[PASS] " .. name)

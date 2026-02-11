@@ -1674,13 +1674,11 @@ function ns:CleanupItemBrowser()
 end
 
 -------------------------------------------------------------------------------
--- Test Exposure (only when WoWUnit present)
+-- Test Exposure (unconditional — pure logic, safe to always expose)
 -------------------------------------------------------------------------------
 
-if WoWUnit then
-    ns._test = ns._test or {}
-    ns._test.IsCacheValid = IsCacheValid
-    ns._test.InvalidateCache = InvalidateCache
-    ns._test.BuildSearchIndexEntry = BuildSearchIndexEntry
-    ns._test.NeedsEJRetry = NeedsEJRetry
-end
+ns._test = ns._test or {}
+ns._test.IsCacheValid = IsCacheValid
+ns._test.InvalidateCache = InvalidateCache
+ns._test.BuildSearchIndexEntry = BuildSearchIndexEntry
+ns._test.NeedsEJRetry = NeedsEJRetry
