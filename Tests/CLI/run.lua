@@ -25,33 +25,53 @@ dofile(scriptPath .. "mocks/init.lua")
 print("Loading namespace fixtures...")
 dofile(scriptPath .. "fixtures/namespace.lua")
 
--- Load ItemBrowser.lua (ns._test is now unconditionally exposed)
-print("Loading ItemBrowser.lua...")
-local chunk = loadfile(projectRoot .. "UI/ItemBrowser.lua")
-if not chunk then
-    print("[ERROR] Failed to load UI/ItemBrowser.lua")
-    os.exit(1)
+-- Load addon source files needed for tests
+print("Loading addon source files...")
+
+local function loadAddonFile(path, label)
+    local chunk = loadfile(projectRoot .. path)
+    if not chunk then
+        print("[ERROR] Failed to load " .. path)
+        os.exit(1)
+    end
+    chunk("LootWishlist", ns)
 end
-chunk("LootWishlist", ns)
+
+-- Load Database.lua and Wishlist.lua for new tests
+loadAddonFile("Database.lua", "Database")
+loadAddonFile("Wishlist.lua", "Wishlist")
+loadAddonFile("UI/ItemBrowser.lua", "ItemBrowser")
 
 -- Load shared test definitions
 print("Loading shared tests...")
-local sharedChunk = loadfile(projectRoot .. "Tests/SharedTests/ItemBrowserTests.lua")
-if not sharedChunk then
-    print("[ERROR] Failed to load Tests/SharedTests/ItemBrowserTests.lua")
-    os.exit(1)
-end
-sharedChunk("LootWishlist", ns)
+loadAddonFile("Tests/SharedTests/ItemBrowserTests.lua", "ItemBrowserTests")
+loadAddonFile("Tests/SharedTests/WishlistTests.lua", "WishlistTests")
+loadAddonFile("Tests/SharedTests/DatabaseTests.lua", "DatabaseTests")
 
 -- Build CLI assertion adapter (maps to assert())
 local T = {
     IsTrue = function(val, msg) assert(val, msg) end,
     IsFalse = function(val, msg) assert(not val, msg) end,
-    AreEqual = function(expected, actual, msg) assert(expected == actual, msg) end,
+    AreEqual = function(expected, actual, msg)
+        assert(expected == actual,
+            (msg or "AreEqual") .. " (expected: " .. tostring(expected) .. ", got: " .. tostring(actual) .. ")")
+    end,
 }
 
--- Get test table from shared definitions
-local tests = ns._sharedTests.ItemBrowser(T)
+-- Collect all test suites
+local allTests = {}
+local suiteNames = {"ItemBrowser", "Wishlist", "Database"}
+
+for _, suiteName in ipairs(suiteNames) do
+    if ns._sharedTests[suiteName] then
+        local tests = ns._sharedTests[suiteName](T)
+        for name, fn in pairs(tests) do
+            if type(fn) == "function" then
+                allTests[suiteName .. "." .. name] = fn
+            end
+        end
+    end
+end
 
 print("")
 print("Running tests...")
@@ -62,16 +82,14 @@ local failures = {}
 
 -- Collect and sort test names for deterministic order
 local testNames = {}
-for name, fn in pairs(tests) do
-    if type(fn) == "function" then
-        table.insert(testNames, name)
-    end
+for name in pairs(allTests) do
+    table.insert(testNames, name)
 end
 table.sort(testNames)
 
 -- Run tests in sorted order
 for _, name in ipairs(testNames) do
-    local testFn = tests[name]
+    local testFn = allTests[name]
     local ok, err = pcall(testFn)
     if ok then
         passed = passed + 1

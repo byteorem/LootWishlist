@@ -5,8 +5,14 @@
 ## Version: 1.0.5
 ## DefaultState: enabled
 ## Category: Loot
+## IconTexture: Interface\Icons\INV_Misc_Bag_07
+## AddonCompartmentFunc: LootWishlist_OnAddonCompartmentClick
+## AddonCompartmentFuncOnEnter: LootWishlist_OnAddonCompartmentEnter
+## AddonCompartmentFuncOnLeave: LootWishlist_OnAddonCompartmentLeave
 ## SavedVariables: LootWishlistDB
 ## SavedVariablesPerCharacter: LootWishlistCharDB
+## AllowAddOnTableAccess: true
+## LoadSavedVariablesFirst: LootWishlistDB, LootWishlistCharDB
 ## X-Wago-ID: n6VL7ZGd
 ## OptionalDeps: WoWUnit
 
@@ -15,6 +21,7 @@ Libs/LibDBIcon-1-0/CallbackHandler-1.0/CallbackHandler-1.0.lua
 Libs/LibDBIcon-1-0/LibDataBroker-1.1/LibDataBroker-1.1.lua
 Libs/LibDBIcon-1-0/LibDBIcon-1.0/LibDBIcon-1.0.lua
 
+Localization.lua
 Core.lua
 Constants.lua
 Database.lua
@@ -29,4 +36,6 @@ UI/Options.lua
 UI/MainWindow.lua
 UI/ItemBrowser.lua
 Tests/SharedTests/ItemBrowserTests.lua
+Tests/SharedTests/WishlistTests.lua
+Tests/SharedTests/DatabaseTests.lua
 Tests/ItemBrowserTests.lua

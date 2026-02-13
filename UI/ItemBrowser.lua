@@ -843,10 +843,13 @@ function ns:CreateItemBrowser()
     frame:SetSize(BROWSER_WIDTH, BROWSER_HEIGHT)
     frame.dims = dims
 
-    if ns.MainWindow then
-        frame:SetPoint("TOPLEFT", ns.MainWindow, "TOPRIGHT", 5, 0)
-    else
-        frame:SetPoint("CENTER")
+    -- Restore saved position or default relative to MainWindow
+    if not ns:RestoreWindowPosition("browser", frame) then
+        if ns.MainWindow then
+            frame:SetPoint("TOPLEFT", ns.MainWindow, "TOPRIGHT", 5, 0)
+        else
+            frame:SetPoint("CENTER")
+        end
     end
 
     frame:SetMovable(true)
@@ -864,7 +867,10 @@ function ns:CreateItemBrowser()
     titleBar:EnableMouse(true)
     titleBar:RegisterForDrag("LeftButton")
     titleBar:SetScript("OnDragStart", function() frame:StartMoving() end)
-    titleBar:SetScript("OnDragStop", function() frame:StopMovingOrSizing() end)
+    titleBar:SetScript("OnDragStop", function()
+        frame:StopMovingOrSizing()
+        ns:SaveWindowPosition("browser", frame)
+    end)
 
     titleBar.closeBtn:HookScript("OnClick", function()
         if ns.MainWindow and ns.MainWindow.browseBtn then
@@ -1184,6 +1190,9 @@ function ns:CreateItemBrowser()
     frame.noItemsFrame = noItemsFrame
 
     ns.ItemBrowser = frame
+
+    -- Register for Escape-to-Close
+    tinsert(UISpecialFrames, "LootWishlistBrowser")
 
     -- Initialize dropdowns
     self:InitTypeDropdown(typeDropdown)

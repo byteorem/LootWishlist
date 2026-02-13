@@ -122,6 +122,20 @@ function ns:InitEvents()
     eventHandles.chatMsgLoot = EventRegistry:RegisterFrameEventAndCallback(
         "CHAT_MSG_LOOT", self.OnChatMsgLoot, self)
 
+    -- Tooltip integration: show wishlist indicator on item tooltips
+    if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall then
+        TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tooltip, data)
+            if tooltip ~= GameTooltip then return end
+            local itemID = data and data.id
+            if not itemID then return end
+            local isOnWishlist, wishlistName = self:IsItemOnWishlist(itemID)
+            if isOnWishlist then
+                tooltip:AddLine(" ")
+                tooltip:AddLine("|cff00ff00On wishlist:|r " .. (wishlistName or "Default"), 0, 1, 0)
+            end
+        end)
+    end
+
     -- Periodic cleanup of chat loot throttle entries
     -- Aligned with threshold to ensure entries live exactly 60-120s
     local cleanupInterval = ns.Constants.CLEANUP_INTERVAL_SECONDS
@@ -202,7 +216,9 @@ function ns:CheckLootSlot(slot)
 
     if self:IsItemCollected(itemID) then return end
 
-    ns.Debug:Log("loot", "Wishlist match in slot " .. slot, {itemID = itemID, wishlist = wishlistName})
+    if ns.Debug:IsEnabled() then
+        ns.Debug:Log("loot", "Wishlist match in slot " .. slot, {itemID = itemID, wishlist = wishlistName})
+    end
     self:ShowLootAlert(slot, itemID, lootLink, wishlistName)
     pendingLootItems[itemID] = true
 end

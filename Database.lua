@@ -8,7 +8,7 @@ local pairs, ipairs, type = pairs, ipairs, type
 local wipe = wipe
 
 -- Database version for migrations
-local DB_VERSION = 6
+local DB_VERSION = 7
 
 -- Default database structure
 -- Note: Constants.lua must be loaded before Database.lua
@@ -39,6 +39,7 @@ local CHAR_DEFAULTS = {
     collected = {},
     checkedItems = {},
     activeWishlist = "Default",
+    windowPositions = {},
 }
 
 -- Deep merge: copy missing keys from source to target
@@ -170,6 +171,13 @@ function ns:MigrateDatabase()
         end
         -- Clear legacy notification (no longer relevant)
         db.pendingLegacyNotification = nil
+        db.version = 6
+    end
+
+    -- Version 6 -> 7 migration: Add window positions to character DB
+    if db.version < 7 then
+        -- windowPositions is in CHAR_DEFAULTS, DeepMerge handles it
+        db.version = 7
     end
 
     db.version = DB_VERSION
@@ -219,6 +227,32 @@ end
 -- Mark item as collected
 function ns:MarkItemCollected(itemID)
     self.charDB.collected[itemID] = true
+end
+
+-- Save window position
+function ns:SaveWindowPosition(windowKey, frame)
+    if not self.charDB or not self.charDB.windowPositions then return end
+    local point, _, relPoint, xOfs, yOfs = frame:GetPoint()
+    if point then
+        self.charDB.windowPositions[windowKey] = {
+            point = point,
+            relPoint = relPoint,
+            x = xOfs,
+            y = yOfs,
+        }
+    end
+end
+
+-- Restore window position
+function ns:RestoreWindowPosition(windowKey, frame)
+    if not self.charDB or not self.charDB.windowPositions then return false end
+    local pos = self.charDB.windowPositions[windowKey]
+    if pos then
+        frame:ClearAllPoints()
+        frame:SetPoint(pos.point, UIParent, pos.relPoint, pos.x, pos.y)
+        return true
+    end
+    return false
 end
 
 -- Unmark item as collected

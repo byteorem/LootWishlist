@@ -3,6 +3,12 @@
 
 local addonName, ns = ...
 
+local debugstack = debugstack
+
+local function errorHandler(err)
+    return err .. "\n" .. debugstack(2, 20, 0)
+end
+
 -------------------------------------------------------------------------------
 -- State Events
 -------------------------------------------------------------------------------
@@ -43,13 +49,13 @@ end
 function ns.State:Notify(event, data)
     if not self.listeners[event] then return end
 
-    if ns.Debug then
+    if ns.Debug and ns.Debug:IsEnabled() then
         ns.Debug:Log("state", "State: " .. event, data)
     end
 
     for _, callback in pairs(self.listeners[event]) do
-        -- Protected call to prevent one bad listener from breaking others
-        local ok, err = pcall(callback, data)
+        -- Protected call with stack trace to prevent one bad listener from breaking others
+        local ok, err = xpcall(callback, errorHandler, data)
         if not ok then
             if ns.Debug then
                 ns.Debug:Log("state", "State callback error: " .. tostring(err))

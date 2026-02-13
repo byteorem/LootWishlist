@@ -33,6 +33,11 @@ globals = {
     -- Static popup dialogs
     "StaticPopupDialogs",
 
+    -- AddonCompartment handlers
+    "LootWishlist_OnAddonCompartmentClick",
+    "LootWishlist_OnAddonCompartmentEnter",
+    "LootWishlist_OnAddonCompartmentLeave",
+
     -- UI Frames (need write access for state sync)
     "EncounterJournal",
 }
@@ -72,7 +77,7 @@ read_globals = {
     "GetNumLootItems", "GetLootSlotType", "GetLootSlotInfo", "GetLootSlotLink",
 
     -- Utility Functions
-    "GetTime", "UnitClass", "PlaySound", "ReloadUI",
+    "GetTime", "UnitClass", "PlaySound", "ReloadUI", "debugstack",
     "GetClassInfo", "MAX_CLASSES",
     "StaticPopup_Show", "CopyTable",
 
@@ -88,11 +93,17 @@ read_globals = {
     -- Modern Menu Utilities (11.0+)
     "MenuUtil",
 
+    -- Tooltip Data Processor (11.0+)
+    "TooltipDataProcessor",
+
     -- Color Manager (11.1.5+)
     "ColorManager",
 
     -- Lua Extensions (WoW)
-    "wipe",
+    "wipe", "tinsert",
+
+    -- UI Special Frames
+    "UISpecialFrames",
 
     -- Lua standard (WoW global)
     "date",

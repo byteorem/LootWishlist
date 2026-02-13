@@ -58,15 +58,38 @@ ns.StaticData = {
 
 ns.Debug = {
     Log = function() end,
+    IsEnabled = function() return false end,
 }
 
 ns.State = {
-    Subscribe = function() return {} end,
-    Unsubscribe = function() end,
+    listeners = {},
 }
+
+function ns.State:Subscribe(event, callback)
+    if not self.listeners[event] then
+        self.listeners[event] = {}
+    end
+    local handle = {}
+    self.listeners[event][handle] = callback
+    return handle
+end
+
+function ns.State:Unsubscribe(event, handle)
+    if self.listeners[event] then
+        self.listeners[event][handle] = nil
+    end
+end
+
+function ns.State:Notify(event, data)
+    if not self.listeners[event] then return end
+    for _, callback in pairs(self.listeners[event]) do
+        callback(data)
+    end
+end
 
 ns.StateEvents = {
     ITEMS_CHANGED = "ITEMS_CHANGED",
+    ITEM_COLLECTED = "ITEM_COLLECTED",
 }
 
 ns.UI = {
@@ -124,6 +147,9 @@ function ns:GetInstanceInfo(instanceID)
     return {shouldDisplayDifficulty = true}
 end
 
+-- These will be overridden by Wishlist.lua when loaded:
+-- ns:IsItemOnWishlistWithSource, ns:AddItemToWishlist
+-- Stubs are provided as fallbacks for ItemBrowser-only tests
 function ns:IsItemOnWishlistWithSource(itemID, sourceText)
     return false
 end
@@ -134,7 +160,7 @@ end
 
 function ns:RefreshMainWindow() end
 
--- Settings stub
+-- Settings stub (Database.lua will override via InitializeDatabase)
 ns.db = {
     settings = {
         browserSize = 1,

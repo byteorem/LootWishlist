@@ -161,6 +161,17 @@ C_Item = {
     GetItemInfoInstant = function(itemID)
         return itemID, "INVTYPE_HEAD", nil, "INVTYPE_HEAD"
     end,
+    GetItemInfo = function(itemID)
+        return "Test Item " .. itemID,                           -- name
+            "|cff0070dd|Hitem:" .. itemID .. "::::::::80:::::|h[Test Item]|h|r", -- link
+            3, 200, 80, "Armor", "Plate",                       -- quality, iLevel, reqLevel, class, subclass
+            1, "INVTYPE_HEAD", 134400, 100,                     -- maxStack, equipSlot, texture, sellPrice
+            4, 1, 1, 0, false                                   -- classID, subclassID, bindType, expacID, isCraftingReagent
+    end,
+    GetItemCount = function(itemID, includeBank)
+        return 0
+    end,
+    RequestLoadItemDataByID = function(itemID) end,
 }
 
 -- EncounterJournal stubs
@@ -200,6 +211,20 @@ Item = {
         return item
     end,
 }
+
+-- UISpecialFrames table (for Escape-to-Close)
+UISpecialFrames = {}
+
+-- EventRegistry stub
+EventRegistry = {
+    RegisterFrameEventAndCallback = function(self, event, callback, context) return {} end,
+    UnregisterFrameEventAndCallback = function(self, handle) end,
+}
+
+-- debugstack stub
+function debugstack(start, count1, count2)
+    return "(debugstack not available in CLI tests)"
+end
 
 -- WoWUnit check (not present in CLI)
 WoWUnit = nil

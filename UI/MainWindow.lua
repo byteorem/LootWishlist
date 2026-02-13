@@ -7,7 +7,7 @@ local addonName, ns = ...
 local pairs, ipairs, unpack = pairs, ipairs, unpack
 local math = math
 local string = string
-local CreateFrame, StaticPopup_Show = CreateFrame, StaticPopup_Show
+local CreateFrame, StaticPopup_Show, tinsert = CreateFrame, StaticPopup_Show, tinsert
 local CreateDataProvider, CreateScrollBoxListLinearView, ScrollUtil = CreateDataProvider, CreateScrollBoxListLinearView, ScrollUtil
 local EventRegistry = EventRegistry
 local GameTooltip = GameTooltip
@@ -108,7 +108,11 @@ function ns:CreateMainWindow()
 
     local frame = CreateFrame("Frame", "LootWishlistMainFrame", UIParent, "BackdropTemplate")
     frame:SetSize(WINDOW_WIDTH, WINDOW_HEIGHT)
-    frame:SetPoint("CENTER")
+
+    -- Restore saved position or default to center
+    if not ns:RestoreWindowPosition("main", frame) then
+        frame:SetPoint("CENTER")
+    end
     frame:SetMovable(true)
     frame:SetResizable(true)
     frame:SetResizeBounds(400, 350, 700, 800)
@@ -142,6 +146,7 @@ function ns:CreateMainWindow()
     end)
     titleBar:SetScript("OnDragStop", function()
         frame:StopMovingOrSizing()
+        ns:SaveWindowPosition("main", frame)
     end)
 
     -- Profile row (dropdown + edit box + new profile button)
@@ -331,6 +336,9 @@ function ns:CreateMainWindow()
 
     ns.MainWindow = frame
 
+    -- Register for Escape-to-Close
+    tinsert(UISpecialFrames, "LootWishlistMainFrame")
+
     -- Register for item info callbacks using EventRegistry
     -- Use batching to prevent UI flicker from multiple rapid refreshes
     local pendingRefresh = false
@@ -481,7 +489,7 @@ StaticPopupDialogs["LOOTWISHLIST_NEW_WISHLIST"] = {
 
                 ns:RefreshMainWindow()
             else
-                print("|cff00ccffLootWishlist|r: " .. (err or "Failed to create wishlist"))
+                print(ns.Constants.CHAT_PREFIX .. (err or "Failed to create wishlist"))
             end
         end
     end,
@@ -519,7 +527,7 @@ StaticPopupDialogs["LOOTWISHLIST_RENAME_WISHLIST"] = {
                     ns:RefreshBrowser()
                 end
             else
-                print("|cff00ccffLootWishlist|r: " .. (err or "Failed to rename wishlist"))
+                print(ns.Constants.CHAT_PREFIX .. (err or "Failed to rename wishlist"))
             end
         end
     end,
@@ -552,7 +560,7 @@ StaticPopupDialogs["LOOTWISHLIST_DELETE_WISHLIST"] = {
                 ns:RefreshBrowser()
             end
         else
-            print("|cff00ccffLootWishlist|r: " .. (err or "Failed to delete wishlist"))
+            print(ns.Constants.CHAT_PREFIX .. (err or "Failed to delete wishlist"))
         end
     end,
     timeout = 0,
@@ -570,7 +578,7 @@ end
 function ns:ShowRenameWishlistDialog()
     local currentName = self:GetActiveWishlistName()
     if currentName == "Default" then
-        print("|cff00ccffLootWishlist|r: Cannot rename the Default wishlist")
+        print(ns.Constants.CHAT_PREFIX .. "Cannot rename the Default wishlist")
         return
     end
     StaticPopup_Show("LOOTWISHLIST_RENAME_WISHLIST")
@@ -580,7 +588,7 @@ end
 function ns:ShowDeleteWishlistDialog()
     local currentName = self:GetActiveWishlistName()
     if currentName == "Default" then
-        print("|cff00ccffLootWishlist|r: Cannot delete the Default wishlist")
+        print(ns.Constants.CHAT_PREFIX .. "Cannot delete the Default wishlist")
         return
     end
     StaticPopup_Show("LOOTWISHLIST_DELETE_WISHLIST")

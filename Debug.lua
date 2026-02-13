@@ -62,6 +62,11 @@ local function FormatValue(data)
     end
 end
 
+-- Public check for guarding expensive debug string construction
+function ns.Debug:IsEnabled()
+    return IsDebugEnabled()
+end
+
 -- Log a debug message (only when debug mode is on)
 function ns.Debug:Log(category, label, data)
     if not IsDebugEnabled() then return end
@@ -85,24 +90,24 @@ end
 function ns.Debug:Inspect(label, data)
     if HasDevTool() then
         DevTool:AddData(data, "LW Inspect: " .. label)
-        print("|cff00ccffLootWishlist|r: Sent |cff00ff00" .. label .. "|r to DevTool.")
+        print(ns.Constants.CHAT_PREFIX .. "Sent |cff00ff00" .. label .. "|r to DevTool.")
     else
-        print("|cff00ccffLootWishlist|r: DevTool not installed. Value: " .. FormatValue(data))
+        print(ns.Constants.CHAT_PREFIX .. "DevTool not installed. Value: " .. FormatValue(data))
     end
 end
 
 -- Toggle debug mode
 function ns.Debug:Toggle()
     if not ns.db or not ns.db.settings then
-        print("|cff00ccffLootWishlist|r: Database not initialized.")
+        print(ns.Constants.CHAT_PREFIX .. "Database not initialized.")
         return
     end
 
     ns.db.settings.debugEnabled = not ns.db.settings.debugEnabled
     local state = ns.db.settings.debugEnabled and "|cff00ff00ON|r" or "|cffff0000OFF|r"
-    print("|cff00ccffLootWishlist|r: Debug mode " .. state)
+    print(ns.Constants.CHAT_PREFIX .. "Debug mode " .. state)
 
     if ns.db.settings.debugEnabled and HasDevTool() then
-        print("|cff00ccffLootWishlist|r: DevTool detected - logs will appear in DevTool panel.")
+        print(ns.Constants.CHAT_PREFIX .. "DevTool detected - logs will appear in DevTool panel.")
     end
 end
