@@ -22,12 +22,16 @@ ns.StateEvents = {
 -- State Manager
 -------------------------------------------------------------------------------
 
+---@class StateManager
+---@field listeners table<string, table<table, function>>
 ns.State = {
     listeners = {},
 }
 
--- Subscribe to a state event
--- Returns a handle that can be used to unsubscribe
+---Subscribe to a state event
+---@param event string Event name from ns.StateEvents
+---@param callback fun(data: table?) Callback invoked on notify
+---@return table handle Opaque handle for unsubscribing
 function ns.State:Subscribe(event, callback)
     if not self.listeners[event] then
         self.listeners[event] = {}

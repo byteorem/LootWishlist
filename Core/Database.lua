@@ -7,6 +7,46 @@ local addonName, ns = ...
 local pairs, ipairs, type = pairs, ipairs, type
 local wipe = wipe
 
+---@class MinimapIconSettings
+---@field hide boolean
+---@field minimapPos number
+---@field lock boolean
+
+---@class Settings
+---@field soundEnabled boolean
+---@field glowEnabled boolean
+---@field chatAlertEnabled boolean
+---@field alertSound number Sound file ID
+---@field browserSize number 1=Normal, 2=Large
+---@field debugEnabled boolean
+---@field collapsedGroups table<string, boolean>
+---@field minimapIcon MinimapIconSettings
+
+---@class WishlistItem
+---@field itemID number
+---@field sourceText string
+---@field itemLink? string
+
+---@class Wishlist
+---@field items WishlistItem[]
+
+---@class LootWishlistDB
+---@field version number
+---@field wishlists table<string, Wishlist>
+---@field settings Settings
+
+---@class WindowPosition
+---@field point string
+---@field relPoint string
+---@field x number
+---@field y number
+
+---@class LootWishlistCharDB
+---@field collected table<number, boolean>
+---@field checkedItems table<string, boolean>
+---@field activeWishlist string
+---@field windowPositions table<string, WindowPosition>
+
 -- Database version for migrations
 local DB_VERSION = 7
 

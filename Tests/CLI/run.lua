@@ -37,9 +37,11 @@ local function loadAddonFile(path, label)
     chunk("LootWishlist", ns)
 end
 
--- Load Database.lua and Wishlist.lua for new tests
-loadAddonFile("Database.lua", "Database")
-loadAddonFile("Wishlist.lua", "Wishlist")
+-- Load core files in dependency order
+loadAddonFile("Core/Database.lua", "Database")
+loadAddonFile("Core/ItemCache.lua", "ItemCache")
+loadAddonFile("Core/WishlistIndex.lua", "WishlistIndex")
+loadAddonFile("Core/WishlistManager.lua", "WishlistManager")
 loadAddonFile("UI/ItemBrowser.lua", "ItemBrowser")
 
 -- Load shared test definitions

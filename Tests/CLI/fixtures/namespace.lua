@@ -10,7 +10,7 @@ if not scriptDir then scriptDir = "./" end
 local projectRoot = scriptDir .. "../../../"
 
 -- Load Constants.lua (provides ns.Constants)
-local chunk = loadfile(projectRoot .. "Constants.lua")
+local chunk = loadfile(projectRoot .. "Data/Constants.lua")
 if chunk then
     chunk("LootWishlist", ns)
 end

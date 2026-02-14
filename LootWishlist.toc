@@ -22,15 +22,8 @@ Libs/LibDBIcon-1-0/LibDataBroker-1.1/LibDataBroker-1.1.lua
 Libs/LibDBIcon-1-0/LibDBIcon-1.0/LibDBIcon-1.0.lua
 
 Localization.lua
-Core.lua
-Constants.lua
-Database.lua
-Data/StaticData.lua
-Data/Loader.lua
-State.lua
-Wishlist.lua
-Events.lua
-UI/Widgets.lua
-UI/Options.lua
-UI/MainWindow.lua
-UI/ItemBrowser.lua
+Data/Data.xml
+Util/Util.xml
+Core/Core.xml
+Models/Models.xml
+UI/UI.xml

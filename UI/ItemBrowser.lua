@@ -933,17 +933,15 @@ function ns:CreateItemBrowser()
 
     local searchBox = ns.UI:CreateSearchBox(filterRow2, dims.searchWidth, 20)
     searchBox:SetPoint("LEFT", slotDropdown, "RIGHT", 16, 2)
-    frame.searchTimer = nil  -- Store on frame for cleanup
+    local debouncedSearch = ns.Debounce(function(text)
+        -- Guard: skip if browser closed during debounce
+        if not ns.ItemBrowser or not ns.ItemBrowser:IsShown() then return end
+        ns.browserState.searchText = text
+        -- Search is client-side only, no cache invalidation
+        ns:RefreshRightPanel()
+    end, 0.15)
     searchBox:HookScript("OnTextChanged", function(self)
-        if frame.searchTimer then frame.searchTimer:Cancel() end
-        frame.searchTimer = C_Timer.NewTimer(0.15, function()
-            frame.searchTimer = nil
-            -- Guard: skip if browser closed during debounce
-            if not ns.ItemBrowser or not ns.ItemBrowser:IsShown() then return end
-            ns.browserState.searchText = self:GetText()
-            -- Search is client-side only, no cache invalidation
-            ns:RefreshRightPanel()
-        end)
+        debouncedSearch(self:GetText())
     end)
     frame.searchBox = searchBox
 
