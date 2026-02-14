@@ -35,7 +35,3 @@ UI/Widgets.lua
 UI/Options.lua
 UI/MainWindow.lua
 UI/ItemBrowser.lua
-Tests/SharedTests/ItemBrowserTests.lua
-Tests/SharedTests/WishlistTests.lua
-Tests/SharedTests/DatabaseTests.lua
-Tests/ItemBrowserTests.lua
