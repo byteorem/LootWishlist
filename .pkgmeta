@@ -6,4 +6,11 @@ ignore:
     - README.md
     - .git
     - .github
-    - Tests/CLI
+    - Tests
+    - Makefile
+    - tools
+    - docs
+    - debug.log
+    - CLAUDE.local.md
+    - copy-addon.local.sh
+    - Debug.lua

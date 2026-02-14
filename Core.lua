@@ -146,8 +146,11 @@ SlashCmdList["LOOTWISHLIST"] = function(msg)
     elseif cmd == "test" then
         ns:TestAlert()
     elseif cmd == "debug" then
-        ns.Debug:Toggle()
+        if ns.Debug.Toggle then
+            ns.Debug:Toggle()
+        end
     elseif cmd == "inspect" then
+        if not ns.Debug.Toggle then return end
         ns:InspectNamespace(args)
     elseif cmd == "reset" then
         ns:ResetDatabase()
@@ -162,8 +165,10 @@ function ns:PrintHelp()
     print("  |cff00ff00/lw help|r - Show this help")
     print("  |cff00ff00/lw config|r - Open settings")
     print("  |cff00ff00/lw test|r - Test alert system")
-    print("  |cff00ff00/lw debug|r - Toggle debug mode")
-    print("  |cff00ff00/lw inspect [key]|r - Inspect addon data (db/state/cache/data)")
+    if ns.Debug.Toggle then
+        print("  |cff00ff00/lw debug|r - Toggle debug mode")
+        print("  |cff00ff00/lw inspect [key]|r - Inspect addon data (db/state/cache/data)")
+    end
     print("  |cff00ff00/lw reset|r - Reset all data")
 end
 

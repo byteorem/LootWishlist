@@ -105,3 +105,11 @@ ns.Constants = {
         {id = "WEAPON", name = "Weapons"},
     },
 }
+
+-- No-op Debug stub (overwritten by Debug.lua in dev; absent in release)
+ns.Debug = {}
+local function noop() end
+ns.Debug.IsEnabled = noop
+ns.Debug.Log = noop
+ns.Debug.Inspect = noop
+ns.Debug.Toggle = nil
