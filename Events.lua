@@ -12,10 +12,6 @@ local C_Item, C_Timer = C_Item, C_Timer
 local EventRegistry = EventRegistry
 local ActionButton_ShowOverlayGlow, ActionButton_HideOverlayGlow = ActionButton_ShowOverlayGlow, ActionButton_HideOverlayGlow
 local pcall = pcall
-local strsplit = strsplit
-
--- Safe secret value check (12.0.0+ compatibility)
-local SafeIsSecretValue = issecurevariable or function() return false end
 
 -- Active glow frames
 local glowFrames = {}
@@ -44,6 +40,7 @@ local LOOT_BUCKET_DELAY = 0.1  -- seconds
 
 -- Event handler functions with bucketing
 function ns:OnLootReady(event, autoLoot)
+    ns.Debug:Log("loot", "LOOT_READY fired", {autoLoot = autoLoot})
     -- Bucket loot processing to avoid processing same window multiple times
     if lootBucket then return end
     lootBucket = C_Timer.After(LOOT_BUCKET_DELAY, function()
@@ -53,6 +50,7 @@ function ns:OnLootReady(event, autoLoot)
 end
 
 function ns:OnLootOpened(event)
+    ns.Debug:Log("loot", "LOOT_OPENED fired")
     -- Bucket with OnLootReady
     if lootBucket then return end
     lootBucket = C_Timer.After(LOOT_BUCKET_DELAY, function()
@@ -124,12 +122,27 @@ function ns:InitEvents()
     eventHandles.chatMsgLoot = EventRegistry:RegisterFrameEventAndCallback(
         "CHAT_MSG_LOOT", self.OnChatMsgLoot, self)
 
-    -- Periodic cleanup of chat loot throttle entries (every 60 seconds)
-    -- Aligned with 60s threshold to ensure entries live exactly 60-120s
-    chatLootCleanupTicker = C_Timer.NewTicker(60, function()
+    -- Tooltip integration: show wishlist indicator on item tooltips
+    if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall then
+        TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tooltip, data)
+            if tooltip ~= GameTooltip then return end
+            local itemID = data and data.id
+            if not itemID then return end
+            local isOnWishlist, wishlistName = self:IsItemOnWishlist(itemID)
+            if isOnWishlist then
+                tooltip:AddLine(" ")
+                tooltip:AddLine("|cff00ff00On wishlist:|r " .. (wishlistName or "Default"), 0, 1, 0)
+            end
+        end)
+    end
+
+    -- Periodic cleanup of chat loot throttle entries
+    -- Aligned with threshold to ensure entries live exactly 60-120s
+    local cleanupInterval = ns.Constants.CLEANUP_INTERVAL_SECONDS
+    chatLootCleanupTicker = C_Timer.NewTicker(cleanupInterval, function()
         local now = GetTime()
         for itemID, lastTime in pairs(lastChatLootCheck) do
-            if (now - lastTime) > 60 then  -- Remove entries older than 60 seconds
+            if (now - lastTime) > cleanupInterval then  -- Remove entries older than threshold
                 lastChatLootCheck[itemID] = nil
             end
         end
@@ -190,8 +203,8 @@ function ns:CheckLootSlot(slot)
     local lootLink = GetLootSlotLink(slot)
     if not lootLink then return end
 
-    -- Skip secret values (12.0.0+)
-    if SafeIsSecretValue(lootName) or SafeIsSecretValue(lootLink) then
+    -- Skip secret values (12.0.0+ SecretValue userdata)
+    if type(lootName) == "userdata" or type(lootLink) == "userdata" then
         return
     end
 
@@ -203,12 +216,16 @@ function ns:CheckLootSlot(slot)
 
     if self:IsItemCollected(itemID) then return end
 
+    if ns.Debug:IsEnabled() then
+        ns.Debug:Log("loot", "Wishlist match in slot " .. slot, {itemID = itemID, wishlist = wishlistName})
+    end
     self:ShowLootAlert(slot, itemID, lootLink, wishlistName)
     pendingLootItems[itemID] = true
 end
 
 -- Show alert for wishlist item
 function ns:ShowLootAlert(slot, itemID, itemLink, wishlistName)
+    ns.Debug:Log("loot", "ShowLootAlert", {slot = slot, itemID = itemID, wishlist = wishlistName})
     -- Chat alert
     if self:GetSetting("chatAlertEnabled") then
         print("|cff00ff00[LootWishlist]|r Wishlist item found: " .. itemLink)
@@ -216,7 +233,7 @@ function ns:ShowLootAlert(slot, itemID, itemLink, wishlistName)
 
     -- Sound alert
     if self:GetSetting("soundEnabled") then
-        local soundID = self:GetSetting("alertSound") or 8959
+        local soundID = self:GetSetting("alertSound") or ns.Constants.SOUND.RAID_WARNING
         PlaySound(soundID, "Master")
     end
 
@@ -293,7 +310,7 @@ function ns:CreateCustomGlow(button, slot)
     end
 
     PulseGlow()
-    glow.pulseTimer = C_Timer.NewTicker(0.5, PulseGlow)
+    glow.pulseTimer = C_Timer.NewTicker(ns.Constants.GLOW_PULSE_INTERVAL, PulseGlow)
     -- Register timer for cleanup
     activeGlowTimers[slot] = glow.pulseTimer
     glowFrames[slot] = button
@@ -332,6 +349,7 @@ function ns:OnItemLooted(itemID)
     if not self:IsItemOnWishlist(itemID) then return end
     if self:IsItemCollected(itemID) then return end
 
+    ns.Debug:Log("loot", "Item looted", {itemID = itemID})
     -- Mark as collected
     self:MarkItemCollected(itemID)
     pendingLootItems[itemID] = nil
@@ -357,7 +375,7 @@ function ns:ShowTestAlert()
 
     -- Sound alert
     if self:GetSetting("soundEnabled") then
-        local soundID = self:GetSetting("alertSound") or 8959
+        local soundID = self:GetSetting("alertSound") or ns.Constants.SOUND.RAID_WARNING
         PlaySound(soundID, "Master")
     end
 

@@ -4,11 +4,10 @@
 local addonName, ns = ...
 
 -- Cache global functions
-local pairs, ipairs, type, unpack = pairs, ipairs, type, unpack
-local tinsert = table.insert
+local pairs, ipairs, unpack = pairs, ipairs, unpack
 local math = math
 local string = string
-local CreateFrame, StaticPopup_Show = CreateFrame, StaticPopup_Show
+local CreateFrame, StaticPopup_Show, tinsert = CreateFrame, StaticPopup_Show, tinsert
 local CreateDataProvider, CreateScrollBoxListLinearView, ScrollUtil = CreateDataProvider, CreateScrollBoxListLinearView, ScrollUtil
 local EventRegistry = EventRegistry
 local GameTooltip = GameTooltip
@@ -16,9 +15,6 @@ local MenuUtil = MenuUtil
 
 local WINDOW_WIDTH = 450
 local WINDOW_HEIGHT = 500
-
--- Selected item tracking
-local selectedItemID = nil
 
 -- Helper to get collapsed groups from persisted settings
 local function GetCollapsedGroups()
@@ -95,7 +91,6 @@ local function BuildDataProviderData(ns)
                     itemLink = entry.itemLink,
                     isCollected = ns:IsItemCollected(entry.itemID),
                     isChecked = ns:IsItemChecked(entry.itemID, entry.sourceText),
-                    isSelected = (selectedItemID == entry.itemID),
                 })
             end
         end
@@ -113,7 +108,11 @@ function ns:CreateMainWindow()
 
     local frame = CreateFrame("Frame", "LootWishlistMainFrame", UIParent, "BackdropTemplate")
     frame:SetSize(WINDOW_WIDTH, WINDOW_HEIGHT)
-    frame:SetPoint("CENTER")
+
+    -- Restore saved position or default to center
+    if not ns:RestoreWindowPosition("main", frame) then
+        frame:SetPoint("CENTER")
+    end
     frame:SetMovable(true)
     frame:SetResizable(true)
     frame:SetResizeBounds(400, 350, 700, 800)
@@ -129,6 +128,16 @@ function ns:CreateMainWindow()
     local titleBar = ns.UI:CreateTitleBar(frame, "LootWishlist")
     frame.titleBar = titleBar
 
+    -- Close ItemBrowser when MainWindow hides
+    frame:SetScript("OnHide", function()
+        if ns.ItemBrowser and ns.ItemBrowser:IsShown() then
+            ns.ItemBrowser:Hide()
+        end
+        if frame.browseBtn then
+            frame.browseBtn:SetText("Browse")
+        end
+    end)
+
     -- Make draggable
     titleBar:EnableMouse(true)
     titleBar:RegisterForDrag("LeftButton")
@@ -137,6 +146,7 @@ function ns:CreateMainWindow()
     end)
     titleBar:SetScript("OnDragStop", function()
         frame:StopMovingOrSizing()
+        ns:SaveWindowPosition("main", frame)
     end)
 
     -- Profile row (dropdown + edit box + new profile button)
@@ -240,7 +250,7 @@ function ns:CreateMainWindow()
             -- Remove button handler
             rowFrame.removeBtn:SetScript("OnClick", function()
                 ns:RemoveItemFromWishlist(elementData.itemID, elementData.sourceText)
-                selectedItemID = nil
+
                 ns:RefreshMainWindow()
                 ns:UpdateBrowserRowsForItem(elementData.itemID, elementData.sourceText)
             end)
@@ -255,6 +265,35 @@ function ns:CreateMainWindow()
     frame.scrollBox = scrollBox
     frame.scrollBar = scrollBar
     frame.scrollView = view
+
+    -- Empty state indicator (shown when wishlist is empty)
+    local emptyState = CreateFrame("Frame", nil, frame)
+    emptyState:SetPoint("TOPLEFT", tableHeader, "BOTTOMLEFT", 0, -40)
+    emptyState:SetPoint("RIGHT", frame, "RIGHT", -30, 0)
+    emptyState:SetHeight(120)
+    emptyState:Hide()
+
+    -- Desaturated bag icon
+    local emptyIcon = emptyState:CreateTexture(nil, "ARTWORK")
+    emptyIcon:SetSize(48, 48)
+    emptyIcon:SetPoint("TOP", 0, 0)
+    emptyIcon:SetTexture("Interface\\Icons\\INV_Misc_Bag_07")
+    emptyIcon:SetDesaturated(true)
+    emptyIcon:SetAlpha(0.5)
+
+    -- Empty state text
+    local emptyText = emptyState:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    emptyText:SetPoint("TOP", emptyIcon, "BOTTOM", 0, -10)
+    emptyText:SetText("Your wishlist is empty")
+    emptyText:SetTextColor(0.6, 0.6, 0.6)
+
+    -- Hint text
+    local emptyHint = emptyState:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    emptyHint:SetPoint("TOP", emptyText, "BOTTOM", 0, -6)
+    emptyHint:SetText("Click |cff00ff00Browse|r to add items")
+    emptyHint:SetTextColor(0.5, 0.5, 0.5)
+
+    frame.emptyState = emptyState
 
     -- Bottom buttons (left side)
     local renameBtn = ns.UI:CreateButton(frame, "Rename", 60, 24)
@@ -297,31 +336,46 @@ function ns:CreateMainWindow()
 
     ns.MainWindow = frame
 
+    -- Register for Escape-to-Close
+    tinsert(UISpecialFrames, "LootWishlistMainFrame")
+
     -- Register for item info callbacks using EventRegistry
+    -- Use batching to prevent UI flicker from multiple rapid refreshes
+    local pendingRefresh = false
     frame.itemInfoHandle = EventRegistry:RegisterFrameEventAndCallback(
         "GET_ITEM_INFO_RECEIVED",
         function(event, itemID)
+            -- Skip if window is hidden
+            if not frame:IsShown() then return end
             -- Refresh if we were waiting for this item
             if ns.itemCache[itemID] == nil then
                 ns:CacheItemInfo(itemID)
-                ns:RefreshMainWindow()
+                -- Batch refreshes within a short window to prevent flicker
+                if not pendingRefresh then
+                    pendingRefresh = true
+                    C_Timer.After(ns.Constants.ITEM_REFRESH_BATCH_DELAY, function()
+                        pendingRefresh = false
+                        ns:RefreshMainWindow()
+                    end)
+                end
             end
         end,
         frame
     )
 
     -- Subscribe to state changes for auto-refresh
-    frame.stateHandles = {}
-    frame.stateHandles.itemsChanged = ns.State:Subscribe(ns.StateEvents.ITEMS_CHANGED, function(data)
-        if frame:IsShown() then
-            ns:RefreshMainWindow()
-        end
-    end)
-    frame.stateHandles.itemCollected = ns.State:Subscribe(ns.StateEvents.ITEM_COLLECTED, function(data)
-        if frame:IsShown() then
-            ns:RefreshMainWindow()
-        end
-    end)
+    frame.stateHandles = {
+        {event = ns.StateEvents.ITEMS_CHANGED, handle = ns.State:Subscribe(ns.StateEvents.ITEMS_CHANGED, function()
+            if frame:IsShown() then
+                ns:RefreshMainWindow()
+            end
+        end)},
+        {event = ns.StateEvents.ITEM_COLLECTED, handle = ns.State:Subscribe(ns.StateEvents.ITEM_COLLECTED, function()
+            if frame:IsShown() then
+                ns:RefreshMainWindow()
+            end
+        end)},
+    }
 
     -- Show and refresh
     frame:Show()
@@ -340,7 +394,6 @@ function ns:InitWishlistDropdown(dropdown)
                 function() return name == ns:GetActiveWishlistName() end,
                 function()
                     ns:SetActiveWishlist(name)
-                    selectedItemID = nil
                     ns:RefreshMainWindow()
                     -- Refresh browser to show new wishlist's browser state
                     if ns.ItemBrowser and ns.ItemBrowser:IsShown() then
@@ -406,6 +459,19 @@ function ns:RefreshMainWindow()
 
     -- Set the DataProvider on the ScrollBox
     frame.scrollBox:SetDataProvider(dataProvider)
+
+    -- Show/hide empty state based on item count
+    local items = self:GetWishlistItems()
+    local isEmpty = not items or #items == 0
+    if frame.emptyState then
+        frame.emptyState:SetShown(isEmpty)
+    end
+    if frame.scrollBox then
+        frame.scrollBox:SetShown(not isEmpty)
+    end
+    if frame.scrollBar then
+        frame.scrollBar:SetShown(not isEmpty)
+    end
 end
 
 -- Define StaticPopupDialogs once at load time (not recreated on each call)
@@ -420,10 +486,10 @@ StaticPopupDialogs["LOOTWISHLIST_NEW_WISHLIST"] = {
             local success, err = ns:CreateWishlist(name)
             if success then
                 ns:SetActiveWishlist(name)
-                selectedItemID = nil
+
                 ns:RefreshMainWindow()
             else
-                print("|cff00ccffLootWishlist|r: " .. (err or "Failed to create wishlist"))
+                print(ns.Constants.CHAT_PREFIX .. (err or "Failed to create wishlist"))
             end
         end
     end,
@@ -455,13 +521,13 @@ StaticPopupDialogs["LOOTWISHLIST_RENAME_WISHLIST"] = {
         if newName and newName ~= "" and newName ~= currentName then
             local success, err = ns:RenameWishlist(currentName, newName)
             if success then
-                selectedItemID = nil
+
                 ns:RefreshMainWindow()
                 if ns.ItemBrowser and ns.ItemBrowser:IsShown() then
                     ns:RefreshBrowser()
                 end
             else
-                print("|cff00ccffLootWishlist|r: " .. (err or "Failed to rename wishlist"))
+                print(ns.Constants.CHAT_PREFIX .. (err or "Failed to rename wishlist"))
             end
         end
     end,
@@ -489,13 +555,12 @@ StaticPopupDialogs["LOOTWISHLIST_DELETE_WISHLIST"] = {
         local currentName = self.data
         local success, err = ns:DeleteWishlist(currentName)
         if success then
-            selectedItemID = nil
             ns:RefreshMainWindow()
             if ns.ItemBrowser and ns.ItemBrowser:IsShown() then
                 ns:RefreshBrowser()
             end
         else
-            print("|cff00ccffLootWishlist|r: " .. (err or "Failed to delete wishlist"))
+            print(ns.Constants.CHAT_PREFIX .. (err or "Failed to delete wishlist"))
         end
     end,
     timeout = 0,
@@ -513,7 +578,7 @@ end
 function ns:ShowRenameWishlistDialog()
     local currentName = self:GetActiveWishlistName()
     if currentName == "Default" then
-        print("|cff00ccffLootWishlist|r: Cannot rename the Default wishlist")
+        print(ns.Constants.CHAT_PREFIX .. "Cannot rename the Default wishlist")
         return
     end
     StaticPopup_Show("LOOTWISHLIST_RENAME_WISHLIST")
@@ -523,7 +588,7 @@ end
 function ns:ShowDeleteWishlistDialog()
     local currentName = self:GetActiveWishlistName()
     if currentName == "Default" then
-        print("|cff00ccffLootWishlist|r: Cannot delete the Default wishlist")
+        print(ns.Constants.CHAT_PREFIX .. "Cannot delete the Default wishlist")
         return
     end
     StaticPopup_Show("LOOTWISHLIST_DELETE_WISHLIST")
@@ -562,8 +627,8 @@ function ns:CleanupMainWindow()
 
         -- Unsubscribe from state events
         if ns.MainWindow.stateHandles then
-            for event, handle in pairs(ns.MainWindow.stateHandles) do
-                ns.State:Unsubscribe(ns.StateEvents[event:upper()] or event, handle)
+            for _, entry in ipairs(ns.MainWindow.stateHandles) do
+                ns.State:Unsubscribe(entry.event, entry.handle)
             end
             ns.MainWindow.stateHandles = nil
         end
@@ -591,7 +656,6 @@ function ns:ShowItemContextMenu(elementData)
         -- Remove option
         local removeBtn = rootDescription:CreateButton("|cffff6666Remove from Wishlist|r", function()
             ns:RemoveItemFromWishlist(itemID, sourceText)
-            selectedItemID = nil
             ns:RefreshMainWindow()
             ns:UpdateBrowserRowsForItem(itemID, sourceText)
         end)

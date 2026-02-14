@@ -3,6 +3,7 @@ max_line_length = false
 
 exclude_files = {
     "Libs/**",
+    "Tests/CLI/**",  -- CLI test mocks intentionally set globals
 }
 
 ignore = {
@@ -32,6 +33,11 @@ globals = {
     -- Static popup dialogs
     "StaticPopupDialogs",
 
+    -- AddonCompartment handlers
+    "LootWishlist_OnAddonCompartmentClick",
+    "LootWishlist_OnAddonCompartmentEnter",
+    "LootWishlist_OnAddonCompartmentLeave",
+
     -- UI Frames (need write access for state sync)
     "EncounterJournal",
 }
@@ -41,42 +47,38 @@ read_globals = {
     "LibStub",
 
     -- C_* Namespaces
+    "C_AddOns",
     "C_Item",
     "C_Timer",
     "C_EncounterJournal",
-    "C_ChallengeMode",
-    "C_EncodingUtil",
 
     -- Encounter Journal
-    "EJ_SelectTier", "EJ_SetLootFilter", "EJ_ResetLootFilter",
-    "EJ_SetDifficulty", "EJ_GetDifficulty", "EJ_GetInstanceByIndex", "EJ_SelectInstance",
-    "EJ_GetEncounterInfoByIndex", "EJ_SelectEncounter", "EJ_GetNumLoot",
-    "EJ_GetNumTiers", "EJ_GetTierInfo", "EJ_GetCurrentTier",
-    "EJ_GetCurrentInstance", "EJ_GetInstanceInfo",
+    "EJ_SelectTier", "EJ_SetLootFilter", "EJ_ResetLootFilter", "EJ_GetLootFilter",
+    "EJ_SetDifficulty", "EJ_SelectInstance",
+    "EJ_SelectEncounter", "EJ_GetNumLoot", "EJ_GetEncounterInfoByIndex",
+    "EJ_GetNumTiers", "EJ_GetTierInfo",
+    "EJ_GetInstanceInfo", "EJ_GetInstanceByIndex",
 
     -- Enums
     "Enum",
 
     -- Frame Creation
-    "CreateFrame", "CreateFramePool", "CreateColor",
+    "CreateFrame", "CreateColor",
     "CreateDataProvider", "CreateScrollBoxListLinearView",
 
     -- Item Loading (async)
-    "Item", "ContinuableContainer",
+    "Item",
+    "ContinuableContainer",
 
     -- UI Parents/Objects
     "UIParent", "GameTooltip", "LootFrame",
-
-    -- Dropdown Functions
-    "UIDropDownMenu_Initialize", "UIDropDownMenu_CreateInfo",
-    "UIDropDownMenu_AddButton", "UIDropDownMenu_SetText",
-    "UIDropDownMenu_SetWidth", "ToggleDropDownMenu",
 
     -- Loot Functions
     "GetNumLootItems", "GetLootSlotType", "GetLootSlotInfo", "GetLootSlotLink",
 
     -- Utility Functions
-    "GetTime", "UnitClass", "PlaySound", "ReloadUI",
+    "GetTime", "UnitClass", "PlaySound", "ReloadUI", "debugstack",
+    "GetClassInfo", "MAX_CLASSES",
     "StaticPopup_Show", "CopyTable",
 
     -- Glow Effects
@@ -91,16 +93,22 @@ read_globals = {
     -- Modern Menu Utilities (11.0+)
     "MenuUtil",
 
+    -- Tooltip Data Processor (11.0+)
+    "TooltipDataProcessor",
+
     -- Color Manager (11.1.5+)
     "ColorManager",
 
-    -- Fonts
-    "GameFontNormal", "GameFontNormalSmall", "GameFontNormalLarge",
-    "GameFontHighlight", "GameFontHighlightSmall",
-
     -- Lua Extensions (WoW)
-    "wipe", "strsplit",
+    "wipe", "tinsert",
 
-    -- 12.0+ compatibility
-    "issecurevariable",
+    -- UI Special Frames
+    "UISpecialFrames",
+
+    -- Lua standard (WoW global)
+    "date",
+
+    -- Optional dependencies
+    "DevTool",
+    "WoWUnit",
 }

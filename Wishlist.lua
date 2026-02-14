@@ -4,9 +4,9 @@
 local addonName, ns = ...
 
 -- Cache global functions
-local pairs, ipairs, type, tonumber = pairs, ipairs, type, tonumber
-local tinsert, wipe = table.insert, wipe
-local C_Item, CopyTable = C_Item, CopyTable
+local pairs, ipairs, type = pairs, ipairs, type
+local wipe = wipe
+local C_Item = C_Item
 
 -- Item cache for async loading with LRU eviction
 ns.itemCache = {}
@@ -244,40 +244,6 @@ function ns:RenameWishlist(oldName, newName)
     return true
 end
 
--- Duplicate a wishlist
-function ns:DuplicateWishlist(name, newName)
-    if not self.db.wishlists[name] then
-        return false, "Wishlist does not exist"
-    end
-
-    if not newName or newName == "" then
-        newName = name .. " Copy"
-    end
-
-    -- Ensure unique name
-    local baseName = newName
-    local counter = 1
-    while self.db.wishlists[newName] do
-        counter = counter + 1
-        newName = baseName .. " " .. counter
-    end
-
-    -- Deep copy the wishlist
-    self.db.wishlists[newName] = {
-        items = CopyTable(self.db.wishlists[name].items),
-    }
-
-    -- Update index for new wishlist
-    local wishlist = self.db.wishlists[newName]
-    if wishlist.items then
-        for _, entry in ipairs(wishlist.items) do
-            AddToIndex(entry.itemID, newName)
-        end
-    end
-
-    return true, newName
-end
-
 -- Set active wishlist
 function ns:SetActiveWishlist(name)
     if not self.db.wishlists[name] then
@@ -437,7 +403,7 @@ function ns:CacheItemInfo(itemID)
             quality = quality or 1,
             iLevel = iLevel or 0,
             equipSlot = equipSlot or "",
-            texture = texture or 134400, -- Question mark icon
+            texture = texture or ns.Constants.TEXTURE.QUESTION_MARK, -- Question mark icon
             classID = classID,
             subclassID = subclassID,
         }
@@ -502,29 +468,6 @@ end
 
 -- Get slot name from inventory type
 function ns:GetSlotName(equipSlot)
-    local slotNames = {
-        INVTYPE_HEAD = "Head",
-        INVTYPE_NECK = "Neck",
-        INVTYPE_SHOULDER = "Shoulder",
-        INVTYPE_CLOAK = "Back",
-        INVTYPE_CHEST = "Chest",
-        INVTYPE_ROBE = "Chest",
-        INVTYPE_WRIST = "Wrist",
-        INVTYPE_HAND = "Hands",
-        INVTYPE_WAIST = "Waist",
-        INVTYPE_LEGS = "Legs",
-        INVTYPE_FEET = "Feet",
-        INVTYPE_FINGER = "Finger",
-        INVTYPE_TRINKET = "Trinket",
-        INVTYPE_WEAPON = "One-Hand",
-        INVTYPE_SHIELD = "Off Hand",
-        INVTYPE_2HWEAPON = "Two-Hand",
-        INVTYPE_WEAPONMAINHAND = "Main Hand",
-        INVTYPE_WEAPONOFFHAND = "Off Hand",
-        INVTYPE_HOLDABLE = "Off Hand",
-        INVTYPE_RANGED = "Ranged",
-        INVTYPE_RANGEDRIGHT = "Ranged",
-    }
-    return slotNames[equipSlot] or ""
+    return ns.Constants.SLOT_NAMES[equipSlot] or ""
 end
 

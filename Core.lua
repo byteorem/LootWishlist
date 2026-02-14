@@ -4,21 +4,14 @@
 local addonName, ns = ...
 
 -- Cache global functions
-local pairs, ipairs, type = pairs, ipairs, type
 local wipe, print = wipe, print
 local CreateFrame, StaticPopup_Show = CreateFrame, StaticPopup_Show
 local ReloadUI = ReloadUI
 local EventRegistry = EventRegistry
+local GameTooltip = GameTooltip
 
 -- Addon namespace
 LootWishlist = ns
-ns.addonName = addonName
-
--- Version info
-ns.version = "1.0.0"
-
--- Store callback handles for cleanup (consistent with Events.lua pattern)
-local coreEventHandles = {}
 
 -- Event frame (still needed for ADDON_LOADED which fires before EventRegistry is fully ready)
 local frame = CreateFrame("Frame")
@@ -29,12 +22,12 @@ frame:SetScript("OnEvent", function(self, event, arg1)
         ns:InitializeDatabase()
         self:UnregisterEvent("ADDON_LOADED")
 
-        -- Register remaining events using EventRegistry (consistent with Events.lua)
-        coreEventHandles.playerLogin = EventRegistry:RegisterFrameEventAndCallback(
+        -- Register remaining events using EventRegistry
+        EventRegistry:RegisterFrameEventAndCallback(
             "PLAYER_LOGIN", ns.OnPlayerLogin, ns)
-        coreEventHandles.playerLogout = EventRegistry:RegisterFrameEventAndCallback(
+        EventRegistry:RegisterFrameEventAndCallback(
             "PLAYER_LOGOUT", ns.OnPlayerLogout, ns)
-        coreEventHandles.playerEnteringWorld = EventRegistry:RegisterFrameEventAndCallback(
+        EventRegistry:RegisterFrameEventAndCallback(
             "PLAYER_ENTERING_WORLD", ns.OnPlayerEnteringWorld, ns)
     end
 end)
@@ -62,17 +55,13 @@ end
 -- Called after player login
 function ns:OnPlayerLogin()
     -- Initialize subsystems
-    if ns.InitEvents then
-        ns:InitEvents()
-    end
+    ns:InitEvents()
 
     -- Initialize minimap icon
     ns:InitMinimapIcon()
 
     -- Initialize options panel
-    if ns.InitOptionsPanel then
-        ns:InitOptionsPanel()
-    end
+    ns:InitOptionsPanel()
 
     -- Print load message
     print("|cff00ccffLootWishlist|r loaded. Type |cff00ff00/lw|r for options.")
@@ -95,13 +84,47 @@ function ns:InitMinimapIcon()
         end,
         OnTooltipShow = function(tooltip)
             tooltip:AddLine("LootWishlist")
-            tooltip:AddLine("|cffffffffProfile:|r " .. ns:GetActiveWishlistName(), 0, 1, 0)
+            local profileName = ns:GetActiveWishlistName()
+            local collected, total = ns:GetWishlistProgress()
+            if total > 0 then
+                local percent = math.floor((collected / total) * 100)
+                tooltip:AddDoubleLine(
+                    "|cffffffffProfile:|r " .. profileName,
+                    string.format("%d/%d (%d%%)", collected, total, percent),
+                    0, 1, 0,  -- Profile text color (green)
+                    0.8, 0.8, 0.6  -- Progress text color (light gold)
+                )
+            else
+                tooltip:AddLine("|cffffffffProfile:|r " .. profileName .. " (no items)", 0.6, 0.6, 0.6)
+            end
             tooltip:AddLine("|cffffffffLeft-click|r to toggle window", 0.7, 0.7, 0.7)
             tooltip:AddLine("|cffffffffRight-click|r to open options", 0.7, 0.7, 0.7)
         end,
     })
 
     LDBIcon:Register("LootWishlist", dataObj, ns.db.settings.minimapIcon)
+end
+
+-- AddonCompartment handlers (10.1.0+)
+function LootWishlist_OnAddonCompartmentClick(addonName, buttonName)
+    if buttonName == "RightButton" then
+        ns:OpenSettings()
+    else
+        ns:ToggleMainWindow()
+    end
+end
+
+function LootWishlist_OnAddonCompartmentEnter(addonName, menuButtonFrame)
+    GameTooltip:SetOwner(menuButtonFrame, "ANCHOR_NONE")
+    GameTooltip:SetPoint("TOPRIGHT", menuButtonFrame, "BOTTOMRIGHT", 0, 0)
+    GameTooltip:AddLine("LootWishlist")
+    GameTooltip:AddLine("|cffffffffLeft-click|r to toggle window", 0.7, 0.7, 0.7)
+    GameTooltip:AddLine("|cffffffffRight-click|r to open options", 0.7, 0.7, 0.7)
+    GameTooltip:Show()
+end
+
+function LootWishlist_OnAddonCompartmentLeave(addonName, menuButtonFrame)
+    GameTooltip:Hide()
 end
 
 -- Slash commands
@@ -119,13 +142,20 @@ SlashCmdList["LOOTWISHLIST"] = function(msg)
     elseif cmd == "config" or cmd == "settings" then
         ns:OpenSettings()
     elseif cmd == "add" then
-        print("|cff00ccffLootWishlist|r: Use Browse panel to add items with track data.")
+        print(ns.Constants.CHAT_PREFIX .. "Use Browse panel to add items with track data.")
     elseif cmd == "test" then
         ns:TestAlert()
+    elseif cmd == "debug" then
+        if ns.Debug.Toggle then
+            ns.Debug:Toggle()
+        end
+    elseif cmd == "inspect" then
+        if not ns.Debug.Toggle then return end
+        ns:InspectNamespace(args)
     elseif cmd == "reset" then
         ns:ResetDatabase()
     else
-        print("|cff00ccffLootWishlist|r: Unknown command. Type |cff00ff00/lw help|r for options.")
+        print(ns.Constants.CHAT_PREFIX .. "Unknown command. Type |cff00ff00/lw help|r for options.")
     end
 end
 
@@ -135,7 +165,29 @@ function ns:PrintHelp()
     print("  |cff00ff00/lw help|r - Show this help")
     print("  |cff00ff00/lw config|r - Open settings")
     print("  |cff00ff00/lw test|r - Test alert system")
+    if ns.Debug.Toggle then
+        print("  |cff00ff00/lw debug|r - Toggle debug mode")
+        print("  |cff00ff00/lw inspect [key]|r - Inspect addon data (db/state/cache/data)")
+    end
     print("  |cff00ff00/lw reset|r - Reset all data")
+end
+
+function ns:InspectNamespace(key)
+    key = key and key:lower() or ""
+    if key == "db" then
+        ns.Debug:Inspect("ns.db", ns.db)
+    elseif key == "state" then
+        ns.Debug:Inspect("ns.browserState", ns.browserState)
+    elseif key == "cache" then
+        ns.Debug:Inspect("ns.BrowserCache", ns.BrowserCache)
+        ns.Debug:Inspect("ns.itemCache", ns.itemCache)
+    elseif key == "data" then
+        ns.Debug:Inspect("ns.Data", ns.Data)
+    elseif key == "" then
+        ns.Debug:Inspect("LootWishlist (ns)", ns)
+    else
+        print(ns.Constants.CHAT_PREFIX .. "Unknown key. Options: db, state, cache, data")
+    end
 end
 
 function ns:ToggleMainWindow()
@@ -156,7 +208,7 @@ function ns:TestAlert()
     if ns.ShowTestAlert then
         ns:ShowTestAlert()
     else
-        print("|cff00ccffLootWishlist|r: Alert system not initialized.")
+        print(ns.Constants.CHAT_PREFIX .. "Alert system not initialized.")
     end
 end
 
@@ -169,7 +221,7 @@ StaticPopupDialogs["LOOTWISHLIST_RESET_CONFIRM"] = {
         wipe(LootWishlistDB)
         wipe(LootWishlistCharDB)
         ns:InitializeDatabase()
-        print("|cff00ccffLootWishlist|r: Data reset.")
+        print(ns.Constants.CHAT_PREFIX .. "Data reset.")
         ReloadUI()
     end,
     timeout = 0,

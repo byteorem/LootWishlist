@@ -5,12 +5,13 @@ local addonName, ns = ...
 
 -- Cache global functions
 local pairs, ipairs, type = pairs, ipairs, type
-local tinsert, wipe = table.insert, wipe
+local wipe = wipe
 
 -- Database version for migrations
-local DB_VERSION = 6
+local DB_VERSION = 7
 
 -- Default database structure
+-- Note: Constants.lua must be loaded before Database.lua
 local DEFAULTS = {
     version = DB_VERSION,
     wishlists = {
@@ -22,8 +23,9 @@ local DEFAULTS = {
         soundEnabled = true,
         glowEnabled = true,
         chatAlertEnabled = true,
-        alertSound = 8959, -- SOUNDKIT.RAID_WARNING
-        browserSize = 1, -- 1 = Normal, 2 = Large
+        alertSound = 8959, -- ns.Constants.SOUND.RAID_WARNING (hardcoded here since DEFAULTS is evaluated at load time)
+        browserSize = 1, -- ns.Constants.BROWSER_SIZE_NORMAL
+        debugEnabled = false,
         collapsedGroups = {},  -- Persist collapse state
         minimapIcon = {
             hide = false,
@@ -37,6 +39,7 @@ local CHAR_DEFAULTS = {
     collected = {},
     checkedItems = {},
     activeWishlist = "Default",
+    windowPositions = {},
 }
 
 -- Deep merge: copy missing keys from source to target
@@ -151,6 +154,7 @@ function ns:MigrateDatabase()
             LootWishlistCharDB.activeWishlist = db.settings.activeWishlist
             db.settings.activeWishlist = nil
         end
+        db.version = 5
     end
 
     -- Version 5 -> 6 migration: Remove track feature
@@ -167,6 +171,13 @@ function ns:MigrateDatabase()
         end
         -- Clear legacy notification (no longer relevant)
         db.pendingLegacyNotification = nil
+        db.version = 6
+    end
+
+    -- Version 6 -> 7 migration: Add window positions to character DB
+    if db.version < 7 then
+        -- windowPositions is in CHAR_DEFAULTS, DeepMerge handles it
+        db.version = 7
     end
 
     db.version = DB_VERSION
@@ -201,12 +212,6 @@ function ns:GetSetting(key)
     return self.db.settings[key]
 end
 
--- Set setting
-function ns:SetSetting(key, value)
-    if not self.db or not self.db.settings then return end
-    self.db.settings[key] = value
-end
-
 -- Set character-specific setting
 function ns:SetCharSetting(key, value)
     if not self.charDB then return end
@@ -224,14 +229,35 @@ function ns:MarkItemCollected(itemID)
     self.charDB.collected[itemID] = true
 end
 
+-- Save window position
+function ns:SaveWindowPosition(windowKey, frame)
+    if not self.charDB or not self.charDB.windowPositions then return end
+    local point, _, relPoint, xOfs, yOfs = frame:GetPoint()
+    if point then
+        self.charDB.windowPositions[windowKey] = {
+            point = point,
+            relPoint = relPoint,
+            x = xOfs,
+            y = yOfs,
+        }
+    end
+end
+
+-- Restore window position
+function ns:RestoreWindowPosition(windowKey, frame)
+    if not self.charDB or not self.charDB.windowPositions then return false end
+    local pos = self.charDB.windowPositions[windowKey]
+    if pos then
+        frame:ClearAllPoints()
+        frame:SetPoint(pos.point, UIParent, pos.relPoint, pos.x, pos.y)
+        return true
+    end
+    return false
+end
+
 -- Unmark item as collected
 function ns:UnmarkItemCollected(itemID)
     self.charDB.collected[itemID] = nil
-end
-
--- Get all collected items
-function ns:GetCollectedItems()
-    return self.charDB.collected
 end
 
 -- Check if item is checked off
