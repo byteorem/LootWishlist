@@ -48,6 +48,7 @@ luac.out
 *.hex
 
 *.local.*
+Makefile.local
 .claude
 debug.log
 docs/

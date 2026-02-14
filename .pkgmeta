@@ -8,6 +8,7 @@ ignore:
     - .github
     - Tests
     - Makefile
+    - Makefile.local
     - tools
     - docs
     - debug.log
