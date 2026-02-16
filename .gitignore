@@ -52,3 +52,4 @@ Makefile.local
 .claude
 debug.log
 docs/
+blink.toml
