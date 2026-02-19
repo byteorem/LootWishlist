@@ -28,6 +28,9 @@ jobs:
       - name: Check StaticData freshness
         run: uv run tools/export_static_data.py --check
 
+      - name: Check Interface version
+        run: uv run tools/check_interface_version.py --live-only
+
   release:
     needs: validate
     runs-on: ubuntu-latest
