@@ -29,11 +29,6 @@ local pendingLootItems = {}
 local lastBagUpdate = 0
 local BAG_UPDATE_THROTTLE = 0.5  -- seconds
 
--- Throttle for CHAT_MSG_LOOT (per-item)
-local lastChatLootCheck = {}
-local CHAT_LOOT_THROTTLE = 1.0  -- seconds
-local chatLootCleanupTicker = nil
-
 -- Event bucketing for loot window processing
 local lootBucket = nil
 local LOOT_BUCKET_DELAY = 0.1  -- seconds
@@ -86,26 +81,6 @@ function ns:OnBagUpdateDelayed(event)
     end
 end
 
-function ns:OnChatMsgLoot(event, msg, ...)
-    -- Parse loot message for item IDs
-    local itemLink = msg:match("|c%x+|Hitem:(%d+).-|h")
-    if itemLink then
-        local itemID = tonumber(itemLink)
-        if itemID then
-            -- Throttle per-item to avoid processing same item multiple times rapidly
-            local now = GetTime()
-            if lastChatLootCheck[itemID] and (now - lastChatLootCheck[itemID]) < CHAT_LOOT_THROTTLE then
-                return
-            end
-            lastChatLootCheck[itemID] = now
-
-            if self:IsItemOnWishlist(itemID) then
-                self:OnItemLooted(itemID)
-            end
-        end
-    end
-end
-
 -- Initialize events using EventRegistry callbacks
 function ns:InitEvents()
     -- Register each event with its handler using EventRegistry
@@ -119,9 +94,6 @@ function ns:InitEvents()
         "LOOT_CLOSED", self.OnLootClosed, self)
     eventHandles.bagUpdateDelayed = EventRegistry:RegisterFrameEventAndCallback(
         "BAG_UPDATE_DELAYED", self.OnBagUpdateDelayed, self)
-    eventHandles.chatMsgLoot = EventRegistry:RegisterFrameEventAndCallback(
-        "CHAT_MSG_LOOT", self.OnChatMsgLoot, self)
-
     -- Tooltip integration: show wishlist indicator on item tooltips
     if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall then
         TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tooltip, data)
@@ -136,17 +108,6 @@ function ns:InitEvents()
         end)
     end
 
-    -- Periodic cleanup of chat loot throttle entries
-    -- Aligned with threshold to ensure entries live exactly 60-120s
-    local cleanupInterval = ns.Constants.CLEANUP_INTERVAL_SECONDS
-    chatLootCleanupTicker = C_Timer.NewTicker(cleanupInterval, function()
-        local now = GetTime()
-        for itemID, lastTime in pairs(lastChatLootCheck) do
-            if (now - lastTime) > cleanupInterval then  -- Remove entries older than threshold
-                lastChatLootCheck[itemID] = nil
-            end
-        end
-    end)
 end
 
 -- Cleanup events (for potential addon unload scenarios)
@@ -158,13 +119,6 @@ function ns:CleanupEvents()
         end
     end
     wipe(activeGlowTimers)
-
-    -- Cancel chat loot cleanup ticker
-    if chatLootCleanupTicker then
-        chatLootCleanupTicker:Cancel()
-        chatLootCleanupTicker = nil
-    end
-    wipe(lastChatLootCheck)
 
     -- Unregister event callbacks
     for name, handle in pairs(eventHandles) do

@@ -43,12 +43,14 @@ loadAddonFile("Core/ItemCache.lua", "ItemCache")
 loadAddonFile("Core/WishlistIndex.lua", "WishlistIndex")
 loadAddonFile("Core/WishlistManager.lua", "WishlistManager")
 loadAddonFile("UI/ItemBrowser.lua", "ItemBrowser")
+loadAddonFile("Core/Events.lua", "Events")
 
 -- Load shared test definitions
 print("Loading shared tests...")
 loadAddonFile("Tests/SharedTests/ItemBrowserTests.lua", "ItemBrowserTests")
 loadAddonFile("Tests/SharedTests/WishlistTests.lua", "WishlistTests")
 loadAddonFile("Tests/SharedTests/DatabaseTests.lua", "DatabaseTests")
+loadAddonFile("Tests/SharedTests/EventsTests.lua", "EventsTests")
 
 -- Build CLI assertion adapter (maps to assert())
 local T = {
@@ -62,7 +64,7 @@ local T = {
 
 -- Collect all test suites
 local allTests = {}
-local suiteNames = {"ItemBrowser", "Wishlist", "Database"}
+local suiteNames = {"ItemBrowser", "Wishlist", "Database", "Events"}
 
 for _, suiteName in ipairs(suiteNames) do
     if ns._sharedTests[suiteName] then
