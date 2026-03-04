@@ -26,10 +26,6 @@ TOC_PATH = os.path.join(PROJECT_ROOT, "LootWishlist.toc")
 
 BUILDS_URL = "https://wago.tools/api/builds"
 
-# 12.x = PTR/next expansion, 11.x = current live (update when new xpac goes live)
-LIVE_MAJOR = 11
-PTR_MAJOR = 12
-
 
 def version_to_interface(version_str: str) -> int:
     """Convert '11.2.7.65299' -> 110207."""
@@ -57,10 +53,10 @@ def fetch_latest_builds() -> dict[str, str]:
 
     for build in builds:
         ver = build["version"]
-        major = int(ver.split(".")[0])
-        if major == LIVE_MAJOR and latest_live is None:
+        product = build.get("product", "")
+        if product == "wow" and latest_live is None:
             latest_live = ver
-        elif major == PTR_MAJOR and latest_ptr is None:
+        elif product == "wowxptr" and latest_ptr is None:
             latest_ptr = ver
         if latest_live and latest_ptr:
             break
@@ -132,10 +128,10 @@ def main():
                 sys.exit(1)
 
             # Replace the live version in the TOC (keep PTR if present)
+            live_major = live_iface // 10000
             updated = []
             for v in current:
-                major = v // 10000
-                if major == LIVE_MAJOR:
+                if v // 10000 == live_major:
                     updated.append(live_iface)
                 else:
                     updated.append(v)
