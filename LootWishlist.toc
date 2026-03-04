@@ -1,8 +1,8 @@
-## Interface: 120000, 110207
+## Interface: 120001
 ## Title: LootWishlist
 ## Notes: Track gear wishlists and get alerts when desired items drop
 ## Author: Byteorem
-## Version: 1.1.1
+## Version: 1.1.2
 ## DefaultState: enabled
 ## Category: Loot
 ## IconTexture: Interface\Icons\INV_Misc_Bag_07
